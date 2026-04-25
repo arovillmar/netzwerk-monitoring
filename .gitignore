@@ -1,0 +1,24 @@
+# Sicherheit - NIEMALS auf GitHub!
+credentials.json
+
+# Claude Code IDE-Einstellungen
+.claude/
+
+# Download-Ordner (grosse Binaries)
+Download/
+
+# Generierte Dateien - nicht nötig auf GitHub
+reports/
+logs/
+
+# Tools - zu gross für GitHub (80MB+)
+tools/
+
+# Windows
+Thumbs.db
+desktop.ini
+*.tmp
+
+# Temporäre Dateien
+*.log
+last_status.json
