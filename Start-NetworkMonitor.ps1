@@ -304,7 +304,8 @@ Write-Log "Report gespeichert: $reportDateiname"
 
 # ── Browser öffnen (nur manueller Start) ─────────────────────────────────────
 if (-not $TaskScheduler) {
-    Start-Process $reportAktuell
+    $browser = @("msedge","chrome","firefox") | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+    if ($browser) { Start-Process $browser $reportAktuell } else { Start-Process $reportAktuell }
 }
 
 # ── Alerts senden ─────────────────────────────────────────────────────────────
