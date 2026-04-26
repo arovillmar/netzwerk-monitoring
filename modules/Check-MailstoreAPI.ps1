@@ -6,7 +6,7 @@ function Check-MailstoreAPI {
         [Parameter(Mandatory)][System.Security.SecureString]$PassSecure
     )
 
-    $baseUrl = "http://$IP:$Port/api/invoke"
+    $baseUrl = "http://${IP}:${Port}/api/invoke"
 
     function Invoke-MailstoreAPI {
         param([string]$Methode, [System.Management.Automation.PSCredential]$Cred)

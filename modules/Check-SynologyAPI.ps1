@@ -6,7 +6,7 @@ function Check-SynologyAPI {
         [Parameter(Mandatory)][System.Security.SecureString]$PassSecure
     )
 
-    $baseUrl = "http://$IP:$Port/webapi"
+    $baseUrl = "http://${IP}:${Port}/webapi"
     $sid     = $null
 
     function Invoke-SynoAPI {

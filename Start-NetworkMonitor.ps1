@@ -65,11 +65,18 @@ $Creds    = $null
 if (Test-Path $CredPfad) {
     try {
         $CredRaw = Get-Content $CredPfad -Raw -Encoding UTF8 | ConvertFrom-Json
+        function ConvertTo-SecureStringSafe {
+            param([string]$Wert)
+            if ($Wert -and $Wert.Length -gt 10) {
+                return ($Wert | ConvertTo-SecureString)
+            }
+            return $null
+        }
         $Creds = [PSCustomObject]@{
-            SmtpPass      = ($CredRaw.smtp_pass    | ConvertTo-SecureString)
-            NAS1Pass      = ($CredRaw.nas1_pass    | ConvertTo-SecureString)
-            NAS2Pass      = ($CredRaw.nas2_pass    | ConvertTo-SecureString)
-            MailstorePass = ($CredRaw.mailstore_pass | ConvertTo-SecureString)
+            SmtpPass      = (ConvertTo-SecureStringSafe $CredRaw.smtp_pass)
+            NAS1Pass      = (ConvertTo-SecureStringSafe $CredRaw.nas1_pass)
+            NAS2Pass      = (ConvertTo-SecureStringSafe $CredRaw.nas2_pass)
+            MailstorePass = (ConvertTo-SecureStringSafe $CredRaw.mailstore_pass)
         }
     }
     catch {
@@ -283,8 +290,6 @@ Write-Host "  Ergebnis: OK: $AnzahlOK  |  Warnungen: $AnzahlWarn  |  Fehler: $An
 Write-Host ""
 
 # ── HTML-Report erstellen ─────────────────────────────────────────────────────
-. (Join-Path $SkriptPfad "Start-NetworkMonitor.ps1") 2>$null  # New-HtmlReport ist in dieser Datei definiert
-
 $reportDateiname = "Monitor_$((Get-Date).ToString('yyyyMMdd_HHmm')).html"
 $reportPfad      = Join-Path $Config.einstellungen.report_pfad $reportDateiname
 $reportAktuell   = Join-Path $Config.einstellungen.report_pfad "Monitor_Aktuell.html"

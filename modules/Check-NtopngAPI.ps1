@@ -5,7 +5,7 @@ function Check-NtopngAPI {
     )
 
     try {
-        $infoUrl = "http://$IP:$Port/lua/rest/v2/get/ntopng/info.lua"
+        $infoUrl = "http://${IP}:${Port}/lua/rest/v2/get/ntopng/info.lua"
 
         $response = Invoke-RestMethod -Uri $infoUrl -Method Get -TimeoutSec 5 -ErrorAction Stop
 
