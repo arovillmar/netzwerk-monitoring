@@ -99,13 +99,17 @@ try {
         -Execute "PowerShell.exe" `
         -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler"
 
-    # Täglich ab 00:00 starten, alle 15 Minuten wiederholen, 24 Stunden lang
+    # Trigger 1a: Täglich ab 00:00, alle 15 Minuten wiederholen
     $trigger1 = New-ScheduledTaskTrigger -Daily -At "00:00"
     $trigger1.Repetition = New-Object Microsoft.Management.Infrastructure.CimInstance `
         -ArgumentList "MSFT_TaskRepetitionPattern","Root/Microsoft/Windows/TaskScheduler"
-    $trigger1.Repetition.CimInstanceProperties["Interval"].Value    = "PT15M"
-    $trigger1.Repetition.CimInstanceProperties["Duration"].Value    = "P1D"
+    $trigger1.Repetition.CimInstanceProperties["Interval"].Value         = "PT15M"
+    $trigger1.Repetition.CimInstanceProperties["Duration"].Value         = "P1D"
     $trigger1.Repetition.CimInstanceProperties["StopAtDurationEnd"].Value = $false
+
+    # Trigger 1b: Beim Hochfahren – 3 Minuten warten (Netz muss erst stabil sein)
+    $trigger1Boot = New-ScheduledTaskTrigger -AtStartup
+    $trigger1Boot.Delay = "PT3M"
 
     $einstellungen1 = New-ScheduledTaskSettingsSet `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
@@ -122,10 +126,10 @@ try {
     Register-ScheduledTask `
         -TaskName $TaskName1 `
         -Action $aktion1 `
-        -Trigger $trigger1 `
+        -Trigger @($trigger1, $trigger1Boot) `
         -Settings $einstellungen1 `
         -Principal $principal1 `
-        -Description "Heimnetz Monitor – prueft alle 15 Minuten alle 18 Netzwerkgeraete" `
+        -Description "Heimnetz Monitor – prueft alle 15 Minuten alle 19 Netzwerkgeraete" `
         -Force | Out-Null
 
     Write-Host "  [OK] Task '$TaskName1' erstellt." -ForegroundColor Green

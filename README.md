@@ -1,6 +1,6 @@
-# Heimnetz Monitor – Einrichtungsanleitung
+# Heimnetz Monitor v2.0 – Einrichtungsanleitung
 
-Automatisches Monitoring-System für 18 Netzwerkgeräte im Heimnetz (192.168.80.0/24).
+Automatisches Monitoring-System für **19 Netzwerkgeräte** im Heimnetz (192.168.80.0/24).
 Prüft alle 15 Minuten, sendet E-Mail-Alarm bei Problemen, erstellt HTML-Reports.
 
 ---
@@ -12,7 +12,6 @@ Prüft alle 15 Minuten, sendet E-Mail-Alarm bei Problemen, erstellt HTML-Reports
 | Windows PC | Windows 10/11 (ArminRosbach @ 192.168.80.145) |
 | PowerShell | 5.1 oder höher (vorinstalliert) |
 | OpenSSH Client | `ssh.exe` verfügbar (Windows 10/11 Feature) |
-| GitHub CLI | `gh` installiert und eingerichtet (`gh auth login`) |
 | ffprobe | Optional – für Kamera-Stream-Check |
 
 **OpenSSH prüfen:**
@@ -34,38 +33,85 @@ ssh-keygen -t ed25519 -C "heimnetz-monitor"
 
 Key auf alle Linux-Hosts übertragen:
 ```powershell
-# Raspberry Pi 5
+# Raspberry Pi 5 (Port 22)
 ssh-copy-id -p 22 pi@192.168.80.20
 
-# Synology DS1525+ (SSH in DSM aktivieren: Systemsteuerung → Terminal)
+# Synology DS1525+ (SSH in DSM aktivieren: Systemsteuerung → Terminal & SNMP)
 ssh-copy-id -p 822 Armin@192.168.80.206
 
 # Synology DS723+
 ssh-copy-id -p 822 Armin@192.168.80.207
 ```
 
-Verbindung testen:
+Verbindung testen – jeder Befehl muss `OK` ausgeben (ohne Passwort-Abfrage):
 ```powershell
 ssh -o BatchMode=yes pi@192.168.80.20 "echo OK"
 ssh -o BatchMode=yes -p 822 Armin@192.168.80.206 "echo OK"
 ssh -o BatchMode=yes -p 822 Armin@192.168.80.207 "echo OK"
 ```
-Jeder Befehl muss `OK` ausgeben – ohne Passwort-Abfrage.
 
 ---
 
-### Schritt 2 – ffprobe installieren (optional)
+### Schritt 2 – PowerShell Remoting für Mailstore aktivieren
+
+Auf der Mailstore-VM (192.168.80.120) als Administrator ausführen:
+```powershell
+Enable-PSRemoting -Force
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "192.168.80.145" -Force
+Restart-Service WinRM
+```
+
+Vom Monitoring-PC testen:
+```powershell
+Test-WSMan -ComputerName 192.168.80.120
+Invoke-Command -ComputerName 192.168.80.120 -ScriptBlock { Get-Service | Where-Object DisplayName -like "*MailStore*" }
+```
+
+> **Ohne PowerShell Remoting:** Das Script prüft nur Ping + RDP-Port.
+> Stufe 2/3/4 (Dienst-Status, Jobs, Archiv) sind dann nicht verfügbar.
+
+---
+
+### Schritt 3 – Mailstore PowerShell Wrapper installieren (optional)
+
+Ermöglicht Abruf von Job-Ergebnissen und Archivstatistiken via API.
+
+1. Auf der Mailstore-VM (192.168.80.120) in PowerShell als Admin:
+```powershell
+# Wrapper-Pfad prüfen (einer davon sollte existieren):
+Test-Path "C:\Program Files (x86)\deepinvent\MailStore Server\administration\MS.PS.Lib.psd1"
+```
+
+2. Falls nicht vorhanden: Mailstore Scripting Tutorial herunterladen von:
+   `Mailstore Server → Hilfe → Skriptbasierte Administration`
+   und nach `C:\MailStore Server Scripting Tutorial\` entpacken.
+
+3. Testen:
+```powershell
+Import-Module "C:\Program Files (x86)\deepinvent\MailStore Server\administration\MS.PS.Lib.psd1"
+Connect-MSApiSession -ServerName "localhost" -UserName "admin" -Password "IhrPasswort"
+Invoke-MSApiCall "GetServerInfo"
+```
+
+> **Bekannte Probleme (werden im Report als "bekannt" markiert, kein Alarm):**
+> - `andrearosbach27@gmail.com` → Gmail OAuth2-Token abgelaufen
+> - `Andrea_IMAP_IONOS` → unverschlüsselte Verbindung
+> - `Armin_FEP_Exchange` → unverschlüsselte Verbindung
+
+---
+
+### Schritt 4 – ffprobe installieren (optional)
 
 Für den Kamera-Stream-Check (prüft ob RTSP-Stream wirklich aktiv ist):
 
-1. ffmpeg herunterladen von: https://ffmpeg.org/download.html → Windows Builds
+1. ffmpeg herunterladen: https://ffmpeg.org/download.html → Windows Builds (gpl-shared)
 2. ZIP entpacken nach:
    ```
    C:\Armin\claude_Projekte\Netzwerk-Monitoring\tools\ffmpeg\
    ```
 3. Struktur prüfen:
    ```
-   tools\ffmpeg\bin\ffprobe.exe   ← muss hier liegen
+   tools\ffmpeg\bin\ffprobe.exe   ← muss genau hier liegen
    tools\ffmpeg\bin\ffmpeg.exe
    ```
 4. Testen:
@@ -73,68 +119,75 @@ Für den Kamera-Stream-Check (prüft ob RTSP-Stream wirklich aktiv ist):
    .\tools\ffmpeg\bin\ffprobe.exe -version
    ```
 
-Ohne ffprobe läuft das Script normal – nur Ping + Port-Checks für Kameras, kein Stream-Check.
+Ohne ffprobe: Nur Ping + TCP-Port-Checks für Kameras, kein Stream-Check.
 
 ---
 
-### Schritt 3 – E-Mail-Adressen eintragen
+### Schritt 5 – E-Mail-Adressen eintragen
 
 `config.json` öffnen und anpassen:
 ```json
-"smtp_von": "monitoring@deine-domain.de",
-"smtp_an":  "armin@deine-domain.de"
+"smtp_von": "rosbach@fe-partners.com",
+"smtp_an":  "rosbach@fe-partners.com"
 ```
 
 ---
 
-### Schritt 4 – Zugangsdaten einrichten
+### Schritt 6 – Zugangsdaten einrichten
 
 ```powershell
 .\Setup-Credentials.ps1
 ```
 
 Abgefragt werden (verschlüsselt mit Windows DPAPI):
-- IONOS SMTP Passwort
-- Synology DS1525+ DSM Passwort (Benutzer: Armin)
-- Synology DS723+ DSM Passwort (Benutzer: Armin)
-- Mailstore API Passwort
 
-> **Sicherheit:** `credentials.json` ist in `.gitignore` und kommt **niemals** auf GitHub.
-> Die Verschlüsselung ist an diesen PC gebunden – auf anderen PCs nicht entschlüsselbar.
+| # | Passwort | Wozu |
+|---|----------|------|
+| 1 | IONOS SMTP | E-Mail-Versand (exchange.ionos.eu:587) |
+| 2 | Pi-hole | API v6 Session-Login (POST /api/auth) |
+| 3 | Synology DS1525+ | SSH Benutzer Armin, Port 822 |
+| 4 | Synology DS723+ | SSH Benutzer Armin, Port 822 |
+| 5 | Mailstore Admin | PowerShell Remoting + CLI Wrapper |
+| 6 | Reolink Kameras | Benutzer admin, alle 5 Reolink-Kameras |
+| 7 | INSTAR Kameras | Benutzer admin, alle INSTAR-Kameras |
+
+> **Sicherheit:** `credentials.json` ist in `.gitignore` – kommt **niemals** auf GitHub.
+> DPAPI-Verschlüsselung ist an diesen PC gebunden. Bei PC-Wechsel: Setup-Credentials.ps1 erneut ausführen.
 
 ---
 
-### Schritt 5 – Task Scheduler einrichten
+### Schritt 7 – Task Scheduler einrichten
 
-Als Administrator ausführen:
+Als **Administrator** ausführen:
 ```powershell
 .\Setup-Task.ps1
 ```
 
 Legt zwei geplante Aufgaben an:
-- **Heimnetz-Monitor-Check**: alle 15 Minuten, ganztags
-- **Heimnetz-Monitor-Tagesbericht**: täglich 08:00 Uhr mit E-Mail-Report
+- **Heimnetz-Monitor-Check**: Alle 15 Minuten (+ einmalig 3 Min nach Neustart)
+- **Heimnetz-Monitor-Tagesbericht**: Täglich 08:00 Uhr mit vollständigem E-Mail-Report
 
 ---
 
-### Schritt 6 – INSTAR Kamera 2 IP nachtragen
+### Schritt 8 – INSTAR Kamera 2 IP nachtragen
 
 Sobald die IP bekannt ist:
 1. `config.json` öffnen
 2. Gerät 18 `"INSTAR Kamera 2"` suchen
 3. `"SPÄTER_NACHTRAGEN"` durch echte IP ersetzen
-4. `"aktiv": false` auf `"aktiv": true` setzen
+4. `"aktiv": false` → `"aktiv": true` setzen
+5. `rtsp_url` entsprechend anpassen
 
 ---
 
-### Schritt 7 – Ersten manuellen Test starten
+### Schritt 9 – Ersten manuellen Test starten
 
 ```powershell
 .\Start-NetworkMonitor.ps1
 ```
 
 Öffnet automatisch den HTML-Report im Browser.
-Alle Geräte werden geprüft – Laufzeit ca. 30–60 Sekunden.
+Alle 19 Geräte werden geprüft – Laufzeit ca. 30–90 Sekunden.
 
 ---
 
@@ -144,13 +197,14 @@ Alle Geräte werden geprüft – Laufzeit ca. 30–60 Sekunden.
 
 | Aufgabe | Zeitplan | Aktion |
 |---|---|---|
-| Netzwerk-Check | alle 15 Minuten | Prüft alle Geräte, sendet Alarm bei Problemen |
-| Tagesbericht | täglich 08:00 | Vollständiger Report per E-Mail |
+| Netzwerk-Check | Alle 15 Minuten | Prüft alle 19 Geräte, Alarm bei Problemen |
+| Tagesbericht | Täglich 08:00 | Vollständiger Report per E-Mail |
+| Neustart-Check | 3 Min nach Systemstart | Prüft nach PC-Neustart |
 
 Reports werden gespeichert unter:
 ```
 reports\Monitor_YYYYMMDD_HHmm.html   (historisch)
-reports\Monitor_Aktuell.html          (immer aktuell)
+reports\Monitor_Aktuell.html          (immer aktuell, wird überschrieben)
 ```
 
 ---
@@ -158,7 +212,7 @@ reports\Monitor_Aktuell.html          (immer aktuell)
 ## Manueller Start – Parameter
 
 ```powershell
-# Standard (öffnet Browser)
+# Standard (öffnet Browser, alle 19 Geräte)
 .\Start-NetworkMonitor.ps1
 
 # Nur Fehler und Warnungen anzeigen
@@ -166,26 +220,41 @@ reports\Monitor_Aktuell.html          (immer aktuell)
 
 # Nur ein bestimmtes Gerät prüfen
 .\Start-NetworkMonitor.ps1 -Geraet "Synology"
-.\Start-NetworkMonitor.ps1 -Geraet "Kamera"
-.\Start-NetworkMonitor.ps1 -Geraet "SMA"
+.\Start-NetworkMonitor.ps1 -Geraet "Reolink"
+.\Start-NetworkMonitor.ps1 -Geraet "ELWA"
+.\Start-NetworkMonitor.ps1 -Geraet "Mailstore"
 
 # Tagesbericht sofort senden
 .\Start-NetworkMonitor.ps1 -Tagesbericht
 
-# Wie Task Scheduler (kein Browser)
+# Wie Task Scheduler (kein Browser, kein interaktives Fenster)
 .\Start-NetworkMonitor.ps1 -TaskScheduler
 ```
 
 ---
 
-## Gerät nachträglich hinzufügen
+## Geräte-Übersicht
 
-1. `config.json` öffnen
-2. Neues Objekt in das `"geraete"`-Array eintragen (analog zu bestehenden Geräten)
-3. `"aktiv": true` setzen
-4. Beim nächsten Check-Intervall (max. 15 Min) wird das Gerät automatisch geprüft
-
-Pflichtfelder: `id`, `name`, `ip`, `typ`, `aktiv`, `checks`
+| # | Name | IP | Checks | Besonderheit |
+|---|------|----|--------|--------------|
+| 01 | Fritz!Box | 192.168.80.1 | Ping, HTTP:80 | Gateway, DHCP |
+| 02 | Raspberry Pi 5 | 192.168.80.20 | Ping, SSH:22, Pi-hole, ntopng | Pi-hole v6 Auth! |
+| 03 | Synology DS1525+ | 192.168.80.206 | Ping, SSH:822, DSM, Docker | Docker: Männerballet Port 3000 |
+| 04 | Synology DS723+ | 192.168.80.207 | Ping, SSH:822, DSM | Kein Docker |
+| 05 | SASCHA_SERVER | 192.168.80.87 | Ping, RDP:3389 | Windows-Host |
+| 06 | Mailstore VM | 192.168.80.120 | Ping, RDP:3389, WinRM | PowerShell Remoting (kein REST!) |
+| 07 | SMA Home Manager 2 | 192.168.80.49 | Ping, UDP:9522 | PV-Anlage, Alarm bei Ausfall |
+| 08 | AC ELWA-E Heizstab | 192.168.80.122 | Ping, HTTP:/data.jsn | temp1 ÷ 10 = °C, blockactive=OK |
+| 09 | Powerline Adapter 1 | 192.168.80.75 | Ping, HTTP:80 | |
+| 10 | Powerline Adapter 2 | 192.168.80.77 | Ping, HTTP:80 | |
+| 11 | Powerline Adapter 3 | 192.168.80.138 | Ping, HTTP:80 | |
+| 12 | Reolink Garten-2 | 192.168.80.76 | Ping, RTSP:554, HTTP:80 | RLC-820A |
+| 13 | Reolink Garten-1 | 192.168.80.127 | Ping, RTSP:554, HTTP:80 | RLC-820A |
+| 14 | Reolink Eingang | 192.168.80.130 | Ping, RTSP:554, **HTTP:9000** | RLC-843A, neuere Firmware! |
+| 15 | Reolink Keller-Werkstatt | 192.168.80.171 | Ping, RTSP:554, HTTP:80 | RLC-810A |
+| 16 | Reolink Garten-4 | 192.168.80.172 | Ping, RTSP:554, HTTP:80 | RLC-820A |
+| 17 | INSTAR Kamera 1 | 192.168.80.67 | Ping, RTSP:554, HTTP:8080 | |
+| 18 | INSTAR Kamera 2 | SPÄTER_NACHTRAGEN | Ping, RTSP:554, HTTP:8080 | Deaktiviert bis IP bekannt |
 
 ---
 
@@ -193,63 +262,71 @@ Pflichtfelder: `id`, `name`, `ip`, `typ`, `aktiv`, `checks`
 
 ### SSH-Verbindung schlägt fehl
 ```powershell
-# Verbose-Modus für Diagnose
+# Verbose-Diagnose
 ssh -v -p 822 Armin@192.168.80.206
 ```
 Häufige Ursachen:
-- SSH im DSM noch nicht aktiviert (Systemsteuerung → Terminal & SNMP)
-- Falscher Port (Synology: 822, Pi: 22)
+- SSH im DSM noch nicht aktiviert → Systemsteuerung → Terminal & SNMP → SSH aktivieren
+- Falscher Port (Synology: **822**, Raspberry: **22**)
 - SSH-Key nicht kopiert → `ssh-copy-id` erneut ausführen
 
-### credentials.json Fehler
+### Pi-hole gibt HTTP 401 zurück
+Pi-hole v6 erfordert Session-Authentifizierung. Sicherstellen dass:
+- `pihole_pass` in `credentials.json` gesetzt ist → `.\Setup-Credentials.ps1` erneut ausführen
+- Das Passwort mit dem Pi-hole Admin-Passwort übereinstimmt
+- Pi-hole API läuft: `Invoke-RestMethod http://192.168.80.20/api/auth -Method Post -Body '{"password":"test"}' -ContentType "application/json"`
+
+### ELWA-E API gibt 404 zurück
+Korrekter Endpunkt ist `/data.jsn` (nicht `/mypv_act.jsn`):
 ```powershell
-# Neu erstellen
-.\Setup-Credentials.ps1
+Invoke-RestMethod http://192.168.80.122/data.jsn
 ```
-Tritt auf wenn: PC gewechselt, Windows neu installiert oder Benutzerprofil geändert.
+Gibt JSON mit `temp1`, `power`, `blockactive` etc. zurück.
 
-### Task Scheduler startet nicht
-- PowerShell ExecutionPolicy prüfen: `Get-ExecutionPolicy`
-- Task manuell starten: Task-Manager → Registerkarte "Geplante Tasks"
-- Log prüfen: `logs\Monitor_YYYYMMDD.log`
+### Reolink Kamera gesperrt (Lockout)
+Nach 3 fehlgeschlagenen Login-Versuchen sperrt Reolink für 1 Stunde.
+Das Script schützt davor via `logs\camera_lockout.json`.
+- Lockout-Status zurücksetzen: `Remove-Item logs\camera_lockout.json`
+- Kamera direkt im Browser testen: `http://192.168.80.76` (oder Port 9000 bei Eingang)
+- Passwort prüfen: `.\Setup-Credentials.ps1`
 
-### Kamera zeigt WARNUNG obwohl erreichbar
-- RTSP Port 554 prüfen: `Test-NetConnection 192.168.80.76 -Port 554`
-- ffprobe installieren für genaueren Stream-Check
-- Kamera-Neustart prüfen
+### Reolink Eingang zeigt HTTP-Fehler
+Dieses Modell (RLC-843A) verwendet Port **9000** statt 80!
+```powershell
+Test-NetConnection 192.168.80.130 -Port 9000
+```
+
+### Mailstore – PowerShell Remoting schlägt fehl
+```powershell
+# Auf Mailstore-VM testen (als Admin):
+Enable-PSRemoting -Force
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "*" -Force
+
+# Vom Monitoring-PC testen:
+Test-WSMan -ComputerName 192.168.80.120
+```
+Das Script läuft auch ohne Remoting weiter (nur Ping + RDP-Check).
 
 ### Mailstore Gmail-Fehler (bekanntes Problem)
 - `andrearosbach27@gmail.com`: Gmail OAuth2-Token abgelaufen
-- Lösung: In Mailstore Server → Archivierungsprofile → Gmail-Konto → OAuth2 erneuern
+- Lösung: Mailstore Server → Archivierungsprofile → Gmail-Konto → OAuth2 neu autorisieren
+- Dieser Fehler wird im Report als **"bekannt"** markiert und löst keinen Alarm aus.
 
-### Synology API Fehler Code 105
-- Monitoring-Benutzer hat keine ausreichenden Rechte
-- Empfehlung: Dedizierten Read-Only Benutzer in DSM anlegen
+### credentials.json nach PC-Wechsel ungültig
+DPAPI-Verschlüsselung ist benutzerbezogen – nach PC-Wechsel oder Profil-Reset:
+```powershell
+.\Setup-Credentials.ps1   # alle 7 Passwörter neu eingeben
+```
 
----
-
-## Geräte-Übersicht
-
-| # | Name | IP | Typ | Checks |
-|---|---|---|---|---|
-| 01 | Fritz!Box | 192.168.80.1 | Router | Ping, HTTP, TR-064 |
-| 02 | Raspberry Pi 5 | 192.168.80.20 | Raspberry | Ping, SSH, Pi-hole, ntopng |
-| 03 | Synology DS1525+ | 192.168.80.206 | NAS | Ping, SSH, DSM API, Docker, SMART |
-| 04 | Synology DS723+ | 192.168.80.207 | NAS | Ping, SSH, DSM API, SMART |
-| 05 | SASCHA_SERVER | 192.168.80.87 | Windows | Ping, RDP 3389 |
-| 06 | Mailstore VM | 192.168.80.120 | Mailstore | Ping, Port 8474, API |
-| 07 | SMA Home Manager 2 | 192.168.80.49 | Photovoltaik | Ping, Speedwire 9522 |
-| 08 | AC ELWA-E Heizstab | 192.168.80.122 | Heizstab | Ping, JSON API (Temp/Leistung) |
-| 09 | Powerline Adapter 1 | 192.168.80.75 | Powerline | Ping, HTTP 80 |
-| 10 | Powerline Adapter 2 | 192.168.80.77 | Powerline | Ping, HTTP 80 |
-| 11 | Powerline Adapter 3 | 192.168.80.138 | Powerline | Ping, HTTP 80 |
-| 12 | Reolink Garten-2 | 192.168.80.76 | Kamera | Ping, RTSP 554, HTTP 80 |
-| 13 | Reolink Garten-1 | 192.168.80.127 | Kamera | Ping, RTSP 554, HTTP 80 |
-| 14 | Reolink Eingang | 192.168.80.130 | Kamera | Ping, RTSP 554, HTTP 80 |
-| 15 | Reolink Keller-Werkstatt | 192.168.80.171 | Kamera | Ping, RTSP 554, HTTP 80 |
-| 16 | Reolink Garten-4 | 192.168.80.172 | Kamera | Ping, RTSP 554, HTTP 80 |
-| 17 | INSTAR Kamera 1 | 192.168.80.67 | Kamera | Ping, RTSP 554, HTTP 8080 |
-| 18 | INSTAR Kamera 2 | SPÄTER_NACHTRAGEN | Kamera | Ping, RTSP 554, HTTP 8080 |
+### Task Scheduler startet nicht
+```powershell
+# ExecutionPolicy prüfen
+Get-ExecutionPolicy
+# Log prüfen
+Get-Content logs\Monitor_$(Get-Date -Format yyyyMMdd).log | Select-Object -Last 50
+# Task-Status prüfen
+Get-ScheduledTask "Heimnetz-Monitor-Check" | Select-Object TaskName, State
+```
 
 ---
 
@@ -257,31 +334,34 @@ Tritt auf wenn: PC gewechselt, Windows neu installiert oder Benutzerprofil geän
 
 ```
 Netzwerk-Monitoring\
-├── Start-NetworkMonitor.ps1    Haupt-Script + HTML-Report Generator
-├── config.json                 Geräte-Konfiguration (18 Geräte)
-├── Setup-Credentials.ps1       Passwörter sicher speichern (DPAPI)
-├── Setup-Task.ps1              Task Scheduler einrichten
-├── README.md                   Diese Anleitung
-├── .gitignore                  Schützt credentials.json + reports/ + tools/
+├── Start-NetworkMonitor.ps1      Haupt-Orchestrator
+├── config.json                   19 Geräte + globale Einstellungen
+├── credentials.json              DPAPI-verschlüsselt (in .gitignore!)
+├── Setup-Credentials.ps1         7 Passwörter einrichten
+├── Setup-Task.ps1                Task Scheduler einrichten (als Admin)
+├── README.md                     Diese Anleitung
 ├── modules\
-│   ├── Check-Ping.ps1          Ping-Check
-│   ├── Check-Port.ps1          TCP-Port-Check
-│   ├── Check-SSH.ps1           SSH-Check (Key-Auth)
-│   ├── Check-PiholeAPI.ps1     Pi-hole API
-│   ├── Check-NtopngAPI.ps1     ntopng API
-│   ├── Check-SynologyAPI.ps1   Synology DSM API (Volumes, SMART, System)
-│   ├── Check-Docker.ps1        Docker Compose Status (SSH)
-│   ├── Check-MailstoreAPI.ps1  Mailstore Management API
-│   ├── Check-SMA.ps1           SMA Speedwire Port 9522
-│   ├── Check-ELWA.ps1          AC ELWA-E JSON API
-│   ├── Check-Powerline.ps1     Powerline Adapter
-│   ├── Check-Camera.ps1        Reolink + INSTAR (RTSP + ffprobe)
-│   ├── Check-ExternalLogins.ps1 Auth-Logs + Fritz!Box + RDP
-│   ├── Send-Alert.ps1          E-Mail Alarm/Warnung/Tagesbericht
-│   └── Push-GitCommit.ps1      GitHub Auto-Commit
-├── reports\                    HTML-Reports (nicht auf GitHub)
-├── logs\                       Log-Dateien (nicht auf GitHub)
-└── tools\ffmpeg\bin\           ffprobe.exe (manuell installieren)
+│   ├── Check-Ping.ps1            ICMP Ping
+│   ├── Check-Port.ps1            TCP Port-Check mit Latenz
+│   ├── Check-SSH.ps1             SSH Key-Auth (uptime, disk, RAM)
+│   ├── Check-PiholeAPI.ps1       Pi-hole v6 Session-Auth (POST /api/auth)
+│   ├── Check-NtopngAPI.ps1       ntopng REST API Port 3000
+│   ├── Check-SynologyAPI.ps1     SSH: Volumes, RAID, Uptime
+│   ├── Check-Docker.ps1          Docker Compose Status via SSH
+│   ├── Check-MailstoreAPI.ps1    4-stufig: Ping → RDP → WinRM → CLI
+│   ├── Check-ELWA.ps1            GET /data.jsn (temp÷10=°C)
+│   ├── Check-SMA.ps1             Ping + HTTP (Speedwire UDP)
+│   ├── Check-Camera.ps1          RTSP:554 + HTTP:konfigurierbar + Lockout
+│   ├── Check-Powerline.ps1       Ping + HTTP:80
+│   ├── Check-ExternalLogins.ps1  Auth-Logs SSH + RDP-Check
+│   ├── New-HtmlReport.ps1        HTML-Report (Port-Spalte + Performance)
+│   ├── Send-Alert.ps1            E-Mail via IONOS SMTP (Anti-Spam)
+│   └── Push-GitCommit.ps1        Auto-Git-Commit nach jedem Check
+├── reports\                      HTML-Reports (in .gitignore)
+├── logs\                         Log-Dateien 30 Tage (in .gitignore)
+│   └── camera_lockout.json       Reolink Login-Versuche (automatisch)
+└── tools\ffmpeg\bin\
+    └── ffprobe.exe               Manuell installieren (optional)
 ```
 
 ---
@@ -289,11 +369,11 @@ Netzwerk-Monitoring\
 ## Sicherheitshinweise
 
 - `credentials.json` → **niemals** committen (in `.gitignore`)
-- SSH läuft ausschließlich über Key-Authentifizierung
-- Synology: dedizierten Read-Only Monitoring-Benutzer verwenden (nicht Admin)
+- SSH läuft ausschließlich über Key-Authentifizierung (kein Passwort im Script)
+- Kamera-Login: Max. 3 Versuche/Stunde (Lockout-Schutz aktiv)
+- DPAPI-Verschlüsselung ist an den lokalen PC + Benutzer gebunden
 - GitHub Repository ist **private**
-- DPAPI-Verschlüsselung ist an den lokalen PC gebunden
 
 ---
 
-*Heimnetz Monitor v1.0 | Armin Rosbach | Stand: April 2026*
+*Heimnetz Monitor v2.0 | Armin Rosbach | Stand: April 2026*

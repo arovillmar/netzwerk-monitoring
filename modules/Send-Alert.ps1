@@ -43,14 +43,14 @@ function Send-Alert {
     $betreff = switch ($Typ) {
         "Alarm"        {
             $anzahl = ($Ergebnisse | Where-Object { $_.CheckStatus -eq "FEHLER" }).Count
-            "ALARM - Heimnetz ALARM - $anzahl Fehler - [$jetztStr]"
+            "⚠️ Heimnetz Alert – $anzahl Probleme – [$jetztStr]"
         }
         "Warnung"      {
-            $anzahl = ($Ergebnisse | Where-Object { $_.CheckStatus -eq "WARNUNG" }).Count
-            "WARNUNG - Heimnetz Warnung - $anzahl Warnungen - [$jetztStr]"
+            $anzahl = ($Ergebnisse | Where-Object { $_.CheckStatus -in @("WARNUNG","FEHLER") }).Count
+            "⚠️ Heimnetz Alert – $anzahl Probleme – [$jetztStr]"
         }
-        "Tagesbericht" { "Tagesbericht - Heimnetz Tagesbericht - [$($jetzt.ToString('dd.MM.yyyy'))]" }
-        "Entwarnung"   { "OK - Heimnetz OK - Problem behoben - [$($jetzt.ToString('HH:mm'))]" }
+        "Tagesbericht" { "✅ Heimnetz OK – Tagesbericht $($jetzt.ToString('dd.MM.yyyy'))" }
+        "Entwarnung"   { "✅ Heimnetz OK – Problem behoben [$($jetzt.ToString('HH:mm'))]" }
     }
 
     $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr
