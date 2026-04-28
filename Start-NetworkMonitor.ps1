@@ -85,13 +85,14 @@ if (Test-Path $CredPfad) {
             return $null
         }
         $Creds = [PSCustomObject]@{
-            SmtpPass      = (ConvertTo-SecureStringSafe $CredRaw.smtp_pass)
-            NAS1Pass      = (ConvertTo-SecureStringSafe $CredRaw.nas1_pass)
-            NAS2Pass      = (ConvertTo-SecureStringSafe $CredRaw.nas2_pass)
-            MailstorePass = (ConvertTo-SecureStringSafe $CredRaw.mailstore_pass)
-            PiholePass    = (ConvertTo-SecureStringSafe $CredRaw.pihole_pass)
-            ReolinkPass   = (ConvertTo-SecureStringSafe $CredRaw.reolink_pass)
-            InstarPass    = (ConvertTo-SecureStringSafe $CredRaw.instar_pass)
+            SmtpPass         = (ConvertTo-SecureStringSafe $CredRaw.smtp_pass)
+            PiholePass       = (ConvertTo-SecureStringSafe $CredRaw.pihole_pass)
+            NAS1Pass         = (ConvertTo-SecureStringSafe $CredRaw.nas1_pass)
+            NAS2Pass         = (ConvertTo-SecureStringSafe $CredRaw.nas2_pass)
+            MailstorePass    = (ConvertTo-SecureStringSafe $CredRaw.mailstore_pass)
+            MailstoreWinPass = (ConvertTo-SecureStringSafe $CredRaw.mailstore_win_pass)
+            ReolinkPass      = (ConvertTo-SecureStringSafe $CredRaw.reolink_pass)
+            InstarPass       = (ConvertTo-SecureStringSafe $CredRaw.instar_pass)
         }
     }
     catch {
@@ -211,8 +212,9 @@ foreach ($G in $GeraeteListe) {
             }
 
             "mailstore" {
-                $msPass   = if ($Creds) { $Creds.MailstorePass } else { $null }
-                $msResult = Check-MailstoreAPI -IP $G.ip -User "admin" -PassSecure $msPass
+                $msPass    = if ($Creds) { $Creds.MailstorePass    } else { $null }
+                $msWinPass = if ($Creds) { $Creds.MailstoreWinPass } else { $null }
+                $msResult  = Check-MailstoreAPI -IP $G.ip -User "admin" -PassSecure $msPass -WinPassSecure $msWinPass
                 $details  = $msResult
                 if ($msResult.Status -ne "OK") { $checkStatus = $msResult.Status }
                 $checkInfo = $msResult.Info

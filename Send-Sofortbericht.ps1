@@ -23,13 +23,14 @@ function ConvertTo-SecureStringSafe {
 }
 
 $Creds = [PSCustomObject]@{
-    SmtpPass      = (ConvertTo-SecureStringSafe $credRaw.smtp_pass)
-    PiholePass    = (ConvertTo-SecureStringSafe $credRaw.pihole_pass)
-    NAS1Pass      = (ConvertTo-SecureStringSafe $credRaw.nas1_pass)
-    NAS2Pass      = (ConvertTo-SecureStringSafe $credRaw.nas2_pass)
-    MailstorePass = (ConvertTo-SecureStringSafe $credRaw.mailstore_pass)
-    ReolinkPass   = (ConvertTo-SecureStringSafe $credRaw.reolink_pass)
-    InstarPass    = (ConvertTo-SecureStringSafe $credRaw.instar_pass)
+    SmtpPass         = (ConvertTo-SecureStringSafe $credRaw.smtp_pass)
+    PiholePass       = (ConvertTo-SecureStringSafe $credRaw.pihole_pass)
+    NAS1Pass         = (ConvertTo-SecureStringSafe $credRaw.nas1_pass)
+    NAS2Pass         = (ConvertTo-SecureStringSafe $credRaw.nas2_pass)
+    MailstorePass    = (ConvertTo-SecureStringSafe $credRaw.mailstore_pass)
+    MailstoreWinPass = (ConvertTo-SecureStringSafe $credRaw.mailstore_win_pass)
+    ReolinkPass      = (ConvertTo-SecureStringSafe $credRaw.reolink_pass)
+    InstarPass       = (ConvertTo-SecureStringSafe $credRaw.instar_pass)
 }
 
 if (-not $Creds.SmtpPass) {
@@ -106,7 +107,7 @@ foreach ($G in $GeraeteListe) {
                 if ($rdpResult.Status -eq "GESCHLOSSEN" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
             }
             "mailstore" {
-                $msResult  = Check-MailstoreAPI -IP $G.ip -User "admin" -PassSecure $Creds.MailstorePass
+                $msResult  = Check-MailstoreAPI -IP $G.ip -User "admin" -PassSecure $Creds.MailstorePass -WinPassSecure $Creds.MailstoreWinPass
                 $details   = $msResult
                 if ($msResult.Status -ne "OK") { $checkStatus = $msResult.Status }
                 $checkInfo = $msResult.Info

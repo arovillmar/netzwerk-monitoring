@@ -1,8 +1,10 @@
 function Check-MailstoreAPI {
     param(
-        [string]$IP                                       = "192.168.80.120",
-        [string]$User                                     = "admin",
-        [System.Security.SecureString]$PassSecure         = $null
+        [string]$IP                                          = "192.168.80.120",
+        [string]$User                                        = "admin",
+        [System.Security.SecureString]$PassSecure            = $null,
+        [string]$WinUser                                     = "Administrator",
+        [System.Security.SecureString]$WinPassSecure         = $null
     )
 
     $startzeit = [System.Diagnostics.Stopwatch]::StartNew()
@@ -59,7 +61,15 @@ function Check-MailstoreAPI {
 
     try {
         $sessionOpt = New-PSSessionOption -OpenTimeout 8000 -OperationTimeout 20000
-        $session    = New-PSSession -ComputerName $IP -SessionOption $sessionOpt -ErrorAction Stop
+        $sessionParams = @{
+            ComputerName  = $IP
+            SessionOption = $sessionOpt
+            ErrorAction   = "Stop"
+        }
+        if ($WinPassSecure) {
+            $sessionParams.Credential = New-Object System.Management.Automation.PSCredential($WinUser, $WinPassSecure)
+        }
+        $session = New-PSSession @sessionParams
 
         $remotingOK = $true
 
