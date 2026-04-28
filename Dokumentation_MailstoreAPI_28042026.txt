@@ -1,0 +1,605 @@
+================================================================================
+  HEIMNETZ MONITOR – MAILSTORE API INTEGRATION
+  Dokumentation der Inbetriebnahme und Testbefehle
+  Datum: 28.04.2026
+  System: Mailstore Server v26.1.0.23845 | VM: 192.168.80.120
+================================================================================
+
+
+================================================================================
+  TEIL I – VERWENDETE BEFEHLE (chronologisch mit Beschreibung)
+================================================================================
+
+------------------------------------------------------------------------
+PHASE 1: SUCHE NACH DEM POWERSHELL-MODUL (MS.PS.Lib.psd1)
+------------------------------------------------------------------------
+
+BEFEHL 1:
+  Test-Path "C:\Program Files (x86)\deepinvent\MailStore Server\administration\MS.PS.Lib.psd1"
+
+  Beschreibung: Prüft ob die PowerShell-Bibliothek von MailStore am Standard-
+  Installationspfad vorhanden ist. Gibt True/False zurück.
+  Ergebnis: False – Modul nicht vorhanden.
+
+BEFEHL 2:
+  Import-Module "C:\MailStore Server Scripting Tutorial\PowerShell\API-Wrapper\MS.PS.Lib.psd1"
+
+  Beschreibung: Versucht das MailStore-Modul aus dem Scripting-Tutorial-Verzeichnis
+  zu laden. Das Verzeichnis existierte nicht (separater Download erforderlich).
+  Ergebnis: Fehler "Moduldatei nicht gefunden".
+
+BEFEHL 3:
+  Get-ChildItem "C:\" -Recurse -Filter "MS.PS.Lib.psd1" -ErrorAction SilentlyContinue
+
+  Beschreibung: Durchsucht das gesamte Laufwerk C: rekursiv nach der Datei MS.PS.Lib.psd1.
+  Ergebnis: Keine Treffer – Modul ist auf dem System nicht installiert.
+
+FAZIT PHASE 1: Das MailStore PowerShell-Modul (MS.PS.Lib.psd1) ist Teil des
+  "MailStore Server Scripting Tutorial" – einem separaten Download von deepinvent.
+  Alternative: Direkte HTTP-REST-API auf Port 8463 verwenden (kein Modul nötig).
+
+
+------------------------------------------------------------------------
+PHASE 2: API-PORT TESTEN
+------------------------------------------------------------------------
+
+BEFEHL 4:
+  Test-NetConnection -ComputerName 192.168.80.120 -Port 8463
+
+  Beschreibung: Testet ob Port 8463 auf der Mailstore-VM via TCP erreichbar ist.
+  Parameter:
+    -ComputerName  IP-Adresse oder Hostname des Zielsystems
+    -Port          TCP-Port der geprüft werden soll
+  Ergebnis: TcpTestSucceeded: True – Port ist offen, API könnte aktiv sein.
+
+BEFEHL 5 (fehlgeschlagen, Port war falsch):
+  Test-NetConnection -ComputerName 192.168.80.120 -Port 8474
+
+  Beschreibung: Erster Versuch mit Port 8474 (falsch dokumentierter Port).
+  Ergebnis: Port geschlossen (API läuft auf 8463, nicht 8474).
+
+
+------------------------------------------------------------------------
+PHASE 3: CREDENTIALS EINGEBEN
+------------------------------------------------------------------------
+
+BEFEHL 6:
+  $cred = Get-Credential -UserName "admin" -Message "MailStore Admin Passwort"
+
+  Beschreibung: Öffnet einen sicheren Passwort-Dialog. Das Passwort wird als
+  SecureString gespeichert und nie im Klartext angezeigt.
+  Parameter:
+    -UserName   Vorausgefüllter Benutzername im Dialog
+    -Message    Anzeigetext im Dialog
+  Wichtig: Benutzer ist "admin" (MailStore-eigener Admin), NICHT der
+  Windows-Benutzer "Administrator".
+
+
+------------------------------------------------------------------------
+PHASE 4: ERSTER API-TEST (GetServerInfo)
+------------------------------------------------------------------------
+
+BEFEHL 7 (fehlgeschlagen – Zertifikatsfehler):
+  Invoke-RestMethod -Uri "https://192.168.80.120:8463/api/invoke/GetServerInfo" `
+    -Method POST -Credential $cred
+
+  Beschreibung: HTTP POST an die MailStore API. Ohne -SkipCertificateCheck
+  schlägt es fehl, weil MailStore ein selbstsigniertes Zertifikat verwendet.
+  Ergebnis: "RemoteCertificateNameMismatch, RemoteCertificateChainErrors"
+
+BEFEHL 8 (Splatting-Methode – empfohlen für lange Befehle):
+  $params = @{
+    Uri                  = "https://192.168.80.120:8463/api/invoke/GetServerInfo"
+    Method               = "POST"
+    Credential           = $cred
+    SkipCertificateCheck = $true
+  }
+  Invoke-RestMethod @params
+
+  Beschreibung: Hashtable-Splatting übergibt alle Parameter als @-Variable.
+  Vermeidet Zeilenumbruch-Probleme bei langen Befehlen.
+  Parameter:
+    SkipCertificateCheck  Ignoriert selbstsignierte/ungültige Zertifikate
+  Ergebnis: Erfolg – statusCode: "succeeded", version: "26.1.0.23845",
+            machineName: "SASCHA_SERVER"
+
+BEFEHL 9 (BOM-Problem gelöst):
+  (Invoke-RestMethod @params).TrimStart([char]0xFEFF) | ConvertFrom-Json
+
+  Beschreibung: MailStore sendet ein UTF-8 BOM (Byte Order Mark, Zeichen 0xFEFF)
+  am Anfang jeder JSON-Antwort. Dies verhindert die automatische JSON-Konvertierung.
+  TrimStart entfernt das BOM, danach kann ConvertFrom-Json korrekt parsen.
+
+
+------------------------------------------------------------------------
+PHASE 5: API-METADATEN ABFRAGEN
+------------------------------------------------------------------------
+
+BEFEHL 10:
+  $meta = @{
+    Uri                  = "https://192.168.80.120:8463/api/get-metadata"
+    Method               = "POST"
+    Credential           = $cred
+    SkipCertificateCheck = $true
+  }
+  $raw = Invoke-RestMethod @meta
+  $parsed = ($raw.TrimStart([char]0xFEFF) | ConvertFrom-Json)
+
+  Beschreibung: Der Endpunkt /api/get-metadata liefert eine vollständige Liste
+  aller verfügbaren API-Funktionen mit ihren Parametern und Datentypen.
+  Unverzichtbar um Pflichtparameter und Datentypen zu ermitteln.
+
+BEFEHL 11:
+  $parsed.result | Where-Object { $_.name -eq "GetJobResults" } | ConvertTo-Json
+
+  Beschreibung: Filtert aus den Metadaten den Eintrag für GetJobResults heraus.
+  Ergebnis: Zeigt alle Pflichtparameter:
+    - fromIncluding  (string, nicht nullable)
+    - toExcluding    (string, nicht nullable)
+    - timeZoneId     (string, nicht nullable)
+    - jobId          (number, nullable)
+
+
+------------------------------------------------------------------------
+PHASE 6: ZEITZONEN ABFRAGEN
+------------------------------------------------------------------------
+
+BEFEHL 12:
+  $tzParams = @{
+    Uri                  = "https://192.168.80.120:8463/api/invoke/GetTimeZones"
+    Method               = "POST"
+    Credential           = $cred
+    SkipCertificateCheck = $true
+  }
+  (Invoke-RestMethod @tzParams).TrimStart([char]0xFEFF) | ConvertFrom-Json |
+    Select-Object -ExpandProperty result | Where-Object { $_ -match "Europe" }
+
+  Beschreibung: Ruft alle gültigen Timezone-IDs vom MailStore-Server ab und
+  filtert auf europäische Zeitzonen.
+  Ergebnis für Deutschland: id = "W. Europe Standard Time"
+
+
+------------------------------------------------------------------------
+PHASE 7: DATUMSFORMAT ERMITTELN (Fehlersuche)
+------------------------------------------------------------------------
+
+  Alle folgenden Formate wurden getestet und schlugen fehl:
+
+BEFEHL 13 (fehlgeschlagen):
+  (Get-Date).AddHours(-24).ToString("o")
+  # Ergibt: 2026-04-27T14:00:00.0000000+02:00
+  # Fehler: "String was not recognized as a valid DateTime"
+
+BEFEHL 14 (fehlgeschlagen):
+  (Get-Date).AddHours(-24).ToString("MM/dd/yyyy HH:mm:ss", [CultureInfo]::InvariantCulture)
+  # Ergibt: 04/27/2026 14:00:00
+  # Fehler: "String was not recognized as a valid DateTime"
+
+BEFEHL 15 (fehlgeschlagen):
+  (Get-Date).AddHours(-24).ToString("dd.MM.yyyy HH:mm:ss")
+  # Ergibt: 27.04.2026 14:00:00
+  # Fehler: "String was not recognized as a valid DateTime"
+
+BEFEHL 16 (fehlgeschlagen):
+  (Get-Date).AddHours(-24).ToString("yyyy-MM-dd HH:mm:ss")
+  # Ergibt: 2026-04-27 14:00:00
+  # Fehler: "String was not recognized as a valid DateTime"
+
+BEFEHL 17 (ERFOLGREICH):
+  (Get-Date).AddHours(-24).ToString("yyyy-MM-ddTHH:mm:ss")
+  # Ergibt: 2026-04-27T14:00:00
+  # Korrekt – API akzeptiert dieses Format
+
+  Wichtig: Das T zwischen Datum und Uhrzeit ist entscheidend.
+  Kein Timezone-Suffix, kein Leerzeichen zwischen Datum und Uhrzeit.
+
+
+------------------------------------------------------------------------
+PHASE 8: JOBRESULTS ERFOLGREICH ABFRAGEN
+------------------------------------------------------------------------
+
+BEFEHL 18 (vollständiger erfolgreicher Aufruf):
+  $von = (Get-Date).AddHours(-24).ToString("yyyy-MM-ddTHH:mm:ss")
+  $bis = (Get-Date).AddDays(1).ToString("yyyy-MM-ddTHH:mm:ss")
+  $f   = [Uri]::EscapeDataString($von)
+  $t   = [Uri]::EscapeDataString($bis)
+  $tz  = [Uri]::EscapeDataString('W. Europe Standard Time')
+  $body = "fromIncluding=$f&toExcluding=$t&timeZoneId=$tz"
+
+  $params = @{
+    Uri                  = "https://192.168.80.120:8463/api/invoke/GetJobResults"
+    Method               = "POST"
+    Credential           = $cred
+    SkipCertificateCheck = $true
+    ContentType          = "application/x-www-form-urlencoded"
+    Body                 = $body
+  }
+  (Invoke-RestMethod @params).TrimStart([char]0xFEFF) | ConvertFrom-Json | ConvertTo-Json -Depth 5
+
+  Beschreibung: Vollständiger Aufruf mit allen Pflichtparametern, URL-Kodierung
+  und BOM-Behandlung. Liefert alle Job-Ergebnisse der letzten 24 Stunden.
+  Felder in der Antwort: jobResultId, jobId, action, startTime, completeTime, result
+
+
+------------------------------------------------------------------------
+PHASE 9: FEHLGESCHLAGENE JOBS ERMITTELN
+------------------------------------------------------------------------
+
+BEFEHL 19:
+  (Invoke-RestMethod @params).TrimStart([char]0xFEFF) | ConvertFrom-Json |
+    Select-Object -ExpandProperty result | Where-Object { $_.result -eq "failed" }
+
+  Beschreibung: Filtert aus den Job-Ergebnissen nur die fehlgeschlagenen Jobs.
+  Mögliche result-Werte: "succeeded", "failed", "cancelled"
+  Ergebnis: 2 fehlgeschlagene Jobs gefunden:
+    - jobId 7: RunProfile --id=13 (Archivierungsprofil)
+    - jobId 5: VerifyStores (Integritätsprüfung, 2h17min gelaufen)
+
+BEFEHL 20:
+  $pj = @{
+    Uri                  = "https://192.168.80.120:8463/api/invoke/GetJobs"
+    Method               = "POST"
+    Credential           = $cred
+    SkipCertificateCheck = $true
+  }
+  (Invoke-RestMethod @pj).TrimStart([char]0xFEFF) | ConvertFrom-Json |
+    Select-Object -ExpandProperty result |
+    Where-Object { $_.id -in @(5,7) } |
+    Select-Object id, name, action
+
+  Beschreibung: Ruft alle konfigurierten Jobs ab und zeigt Namen und Aktionen
+  für die IDs 5 und 7.
+  Ergebnis:
+    id=5  name="Datenintegrität prüfen"              action=VerifyStores
+    id=7  name="AR_Armin Rosbach-Villmar IMAP abholen"  action=RunProfile --id=13
+
+
+================================================================================
+  TEIL II – VOLLSTÄNDIGES GLOSSAR
+================================================================================
+
+------------------------------------------------------------------------
+ALLGEMEINE BEGRIFFE
+------------------------------------------------------------------------
+
+Administration API
+  Schnittstelle zum Fernsteuern eines Servers über HTTP-Anfragen. Bei MailStore
+  wird die Administration API verwendet, um Serverinformationen abzurufen,
+  Archivierungsjobs zu steuern und Ergebnisse auszuwerten – ohne grafische
+  Oberfläche oder installiertes Zusatzmodul.
+
+API (Application Programming Interface)
+  Definierte Schnittstelle, über die Programme miteinander kommunizieren.
+  Die MailStore Administration API verwendet HTTP als Transportprotokoll
+  und JSON als Datenformat.
+
+Basic Authentication (HTTP Basic Auth)
+  Einfaches Authentifizierungsverfahren: Benutzername und Passwort werden
+  als Base64-kodierter String im HTTP-Header "Authorization" übertragen.
+  Format: "Basic " + Base64(Benutzername:Passwort)
+  Hinweis: Nur sicher in Kombination mit HTTPS (verschlüsselte Verbindung).
+
+BOM (Byte Order Mark)
+  Unsichtbares Sonderzeichen (Unicode U+FEFF) am Anfang einer UTF-8-Datei
+  oder -Antwort. Gibt dem Leseprogramm das Zeichenkodierungsformat an.
+  MailStore schickt ein BOM in jeder API-Antwort, was PowerShells
+  automatische JSON-Konvertierung stört. Lösung: .TrimStart([char]0xFEFF)
+
+ConvertFrom-Json
+  PowerShell-Cmdlet, das einen JSON-String in ein PowerShell-Objekt umwandelt.
+  Scheitert wenn der String mit einem BOM-Zeichen beginnt.
+
+ConvertTo-Json
+  PowerShell-Cmdlet, das ein PowerShell-Objekt in JSON-Format umwandelt.
+  Parameter -Depth legt fest wie tief verschachtelte Objekte dargestellt werden.
+
+HTTP POST
+  Eine HTTP-Anfragemethode bei der Daten an den Server gesendet werden.
+  Die MailStore API verwendet ausschließlich POST für alle Aufrufe.
+  Gegensatz zu GET: POST kann Daten im Anfrage-Body mitschicken.
+
+HTTPS
+  HTTP Secure – verschlüsselte Version des HTTP-Protokolls.
+  Verwendet TLS/SSL-Zertifikate zur Verschlüsselung der Verbindung.
+  MailStore verwendet HTTPS auf Port 8463 mit einem selbstsignierten Zertifikat.
+
+Invoke-RestMethod
+  PowerShell-Cmdlet für HTTP-Anfragen. Konvertiert JSON-Antworten automatisch
+  zu PowerShell-Objekten (wenn kein BOM stört). Unterstützt alle HTTP-Methoden.
+
+JSON (JavaScript Object Notation)
+  Textbasiertes Dateiformat für strukturierte Daten. Einfach lesbar für
+  Menschen und Maschinen. MailStore API-Antworten kommen immer als JSON.
+  Beispiel: {"statusCode": "succeeded", "result": {"version": "26.1.0.23845"}}
+
+MS.PS.Lib.psd1
+  PowerShell-Modulbeschreibungsdatei der MailStore Server PowerShell-Bibliothek.
+  Teil des "MailStore Server Scripting Tutorial" – einem separaten Download von
+  deepinvent. Nicht im Standard-Installationsumfang von MailStore Server enthalten.
+  Alternative: Direkte HTTP API-Aufrufe ohne dieses Modul.
+
+PowerShell Remoting (WinRM)
+  Windows-Dienst der es ermöglicht, PowerShell-Befehle auf einem entfernten
+  Computer auszuführen (New-PSSession, Invoke-Command). Muss explizit aktiviert
+  und konfiguriert werden. Auf der Mailstore-VM 192.168.80.120 nicht erreichbar.
+
+SecureString
+  PowerShell-Datentyp für verschlüsselte Strings (z.B. Passwörter).
+  Wird von Get-Credential zurückgegeben. Schützt Passwörter im Arbeitsspeicher.
+  Für API-Aufrufe muss der SecureString in einen Klartext-String umgewandelt
+  werden: [Marshal]::SecureStringToBSTR() + [Marshal]::PtrToStringAuto()
+
+Self-Signed Certificate (Selbstsigniertes Zertifikat)
+  Ein TLS-Zertifikat das nicht von einer offiziellen Zertifizierungsstelle
+  ausgestellt wurde. MailStore erstellt bei der Installation automatisch ein
+  solches Zertifikat. Browser und PowerShell vertrauen ihm standardmäßig nicht.
+  Lösung: -SkipCertificateCheck in Invoke-RestMethod
+
+Splatting
+  PowerShell-Technik bei der Parameter als Hashtable (@{}) gesammelt und dann
+  mit @variablenname an ein Cmdlet übergeben werden. Vermeidet sehr lange
+  Befehlszeilen die beim Kopieren umbrechen.
+
+TCP (Transmission Control Protocol)
+  Verbindungsorientiertes Netzwerkprotokoll. Stellt sicher dass Datenpakete
+  vollständig und in richtiger Reihenfolge ankommen. HTTP/HTTPS laufen über TCP.
+
+Test-NetConnection
+  PowerShell-Cmdlet das eine Netzwerkverbindung zu einem Host und Port testet.
+  Gibt TcpTestSucceeded zurück (True/False). Ähnlich wie "telnet" oder "ping"
+  kombiniert, aber mit Port-Prüfung.
+
+TLS (Transport Layer Security)
+  Verschlüsselungsprotokoll für sichere Netzwerkverbindungen. Nachfolger von SSL.
+  HTTPS verwendet TLS um die Verbindung zu verschlüsseln.
+
+URI-Kodierung (URL-Encoding)
+  Sonderzeichen in URLs müssen kodiert werden damit sie korrekt übertragen werden.
+  Beispiel: Leerzeichen → %20, / → %2F, : → %3A
+  PowerShell: [Uri]::EscapeDataString($string)
+  Wichtig: + muss als %2B kodiert werden, sonst wird es als Leerzeichen interpretiert.
+
+UTF-8
+  Zeichenkodierungsstandard der alle Unicode-Zeichen darstellen kann.
+  Standard für Web-APIs und JSON. MailStore verwendet UTF-8 mit BOM.
+
+------------------------------------------------------------------------
+MAILSTORE-SPEZIFISCHE BEGRIFFE
+------------------------------------------------------------------------
+
+MailStore Administration API
+  HTTP REST-Schnittstelle von MailStore Server für administrative Aufgaben.
+  Standardmäßig deaktiviert – muss in der "MailStore Server Service Configuration"
+  aktiviert werden. URL-Schema: https://<server>:8463/api/invoke/<Funktion>
+
+MailStore admin-Benutzer
+  Der in MailStore integrierte Administrator. NICHT identisch mit dem
+  Windows-Benutzer "Administrator". Wird für API-Aufrufe benötigt.
+  Das Passwort wird in MailStore selbst verwaltet (nicht Windows-Passwort).
+
+MailStore Server Service Configuration
+  Separates Windows-Programm (nicht der Management Client!) zur Konfiguration
+  des MailStore-Dienstes. Hier wird die Administration API aktiviert.
+  Zu finden im Windows-Startmenü unter "MailStore Server Service Configuration"
+  oder im Installationsverzeichnis als MailStoreServerServiceConfiguration.exe
+
+MailStore Management Client
+  Die normale Benutzeroberfläche für MailStore-Administratoren. Hier können
+  Archivierungsprofile, Jobs und Speicherorte verwaltet werden.
+  Davon getrennt: Die Administration API für automatisierte Abfragen.
+
+GetServerInfo
+  API-Funktion: Gibt Basisinformationen zum MailStore-Server zurück.
+  Keine Parameter erforderlich. Antwortfelder: version, machineName
+  Verwendung zum Testen ob API erreichbar und Credentials korrekt sind.
+
+GetJobResults
+  API-Funktion: Gibt Ausführungsergebnisse von Archivierungsjobs zurück.
+  Pflichtparameter:
+    fromIncluding  Startzeit (Format: yyyy-MM-ddTHH:mm:ss)
+    toExcluding    Endzeit   (Format: yyyy-MM-ddTHH:mm:ss)
+    timeZoneId     Zeitzone  (z.B. "W. Europe Standard Time")
+  Optional: jobId (nur Ergebnisse eines bestimmten Jobs)
+  Antwortfelder: jobResultId, jobId, action, startTime, completeTime, result
+
+GetJobs
+  API-Funktion: Gibt alle konfigurierten Archivierungsjobs zurück.
+  Keine Parameter. Antwortfelder: id, name, action, owner, schedule
+  Nützlich um Job-IDs mit sprechenden Namen zu verknüpfen.
+
+GetTimeZones
+  API-Funktion: Gibt alle gültigen Timezone-IDs zurück die der Server kennt.
+  Keine Parameter. Antwortfelder: id, displayName
+  Deutschland: id = "W. Europe Standard Time"
+
+get-metadata
+  API-Endpunkt (nicht invoke/): Gibt Metadaten aller API-Funktionen zurück.
+  URL: https://<server>:8463/api/get-metadata
+  Unverzichtbar um Pflichtparameter, Datentypen und Funktionsnamen zu ermitteln.
+
+RunProfile
+  MailStore-Aktion die ein Archivierungsprofil ausführt.
+  Format in API: "RunProfile --id=<ProfilNummer>"
+  Archivierungsprofile legen fest welche E-Mail-Konten archiviert werden.
+
+VerifyStores
+  MailStore-Aktion die die Integrität aller Archivspeicher prüft.
+  Läuft typischerweise nachts und kann Stunden dauern.
+  Bei Fehler: MailStore Management Client → Verwaltung → Speicherorte → Protokoll
+
+Archivierungsjob (Job)
+  Eine geplante Aufgabe in MailStore die automatisch zu festgelegten Zeiten
+  ausgeführt wird. Beispiele: E-Mails archivieren, Backup erstellen,
+  Integritätsprüfung durchführen, Statusbericht senden.
+
+Job-Status (result-Feld)
+  succeeded  Job erfolgreich abgeschlossen
+  failed     Job mit Fehler abgebrochen – Untersuchung erforderlich
+  cancelled  Job wurde abgebrochen (z.B. durch gleichzeitigen anderen Job)
+
+------------------------------------------------------------------------
+POWERSHELL-BEFEHLE UND PARAMETER
+------------------------------------------------------------------------
+
+Get-Credential
+  Öffnet einen sicheren Passwort-Eingabedialog.
+  Gibt ein PSCredential-Objekt zurück (Benutzername + SecureString-Passwort).
+  Parameter: -UserName (Vorausfüllung), -Message (Anzeigetext)
+
+Get-ChildItem
+  Listet Dateien und Ordner auf. Mit -Recurse durchsucht es Unterordner.
+  Parameter: -Filter (Dateinamenfilter), -ErrorAction SilentlyContinue (Fehler ignorieren)
+
+Import-Module
+  Lädt ein PowerShell-Modul (.psd1 oder .psm1 Datei) in die Session.
+  Fehler wenn Datei nicht existiert oder ungültig ist.
+
+New-PSSession
+  Erstellt eine persistente PowerShell-Remoting-Verbindung zu einem Remote-Computer.
+  Erfordert WinRM auf dem Zielcomputer und gültige Credentials.
+
+Select-Object -ExpandProperty
+  Gibt den Inhalt einer einzelnen Eigenschaft zurück (nicht das Wrapper-Objekt).
+  Beispiel: | Select-Object -ExpandProperty result  → gibt result-Array direkt zurück
+
+SkipCertificateCheck
+  Parameter von Invoke-RestMethod (PowerShell 7+): Ignoriert Zertifikatsfehler.
+  Notwendig bei selbstsignierten Zertifikaten wie bei MailStore.
+  Nur für interne/vertrauenswürdige Server verwenden.
+
+Test-Connection
+  PowerShell-Equivalent zu "ping". Prüft ob ein Host im Netzwerk erreichbar ist.
+  Parameter: -Count (Anzahl Pakete), -TimeoutSeconds (Wartezeit)
+
+Test-Path
+  Prüft ob eine Datei, ein Ordner oder ein Registry-Pfad existiert.
+  Gibt $true oder $false zurück.
+
+TrimStart
+  .NET-Methode die bestimmte Zeichen vom Anfang eines Strings entfernt.
+  Verwendung: $string.TrimStart([char]0xFEFF) entfernt das UTF-8 BOM-Zeichen.
+
+Where-Object
+  Filtert eine Liste von Objekten anhand einer Bedingung.
+  Kurzform: ? { $_.Eigenschaft -eq "Wert" }
+
+------------------------------------------------------------------------
+NETZWERK UND PROTOKOLLE
+------------------------------------------------------------------------
+
+Port 8463
+  Standard-HTTPS-Port der MailStore Administration API.
+  Hinweis: In älteren Dokumentationen findet sich manchmal Port 8474 – das ist falsch
+  bzw. veraltet. Der korrekte Port für MailStore Server ist 8463.
+
+Port 3389
+  Standard-RDP-Port (Remote Desktop Protocol).
+  Wird für Windows-Fernzugriff verwendet.
+  Im Monitor geprüft um festzustellen ob die Windows-VM erreichbar ist.
+
+Port 9522
+  Speedwire-Port des SMA Home Manager (Photovoltaik-Monitoring).
+  Verwendet UDP, nicht TCP! Ein TCP-Test auf diesem Port ist daher immer False.
+
+SSH (Secure Shell)
+  Verschlüsseltes Protokoll für Fernzugriff auf Linux/Unix-Systeme (Port 22).
+  Wird im Monitor verwendet für: Raspberry Pi, Synology NAS (Port 822).
+  Ermöglicht Ausführung von Befehlen auf Remotesystemen.
+
+SMTP (Simple Mail Transfer Protocol)
+  Protokoll zum Versenden von E-Mails. Standard-Port: 587 (mit TLS/STARTTLS).
+  Wird vom Monitor für das Versenden von Alarmierungen und Berichten verwendet.
+
+WinRM (Windows Remote Management)
+  Windows-Dienst der PowerShell Remoting ermöglicht.
+  Muss explizit aktiviert werden (Enable-PSRemoting).
+  Auf der MailStore-VM 192.168.80.120 nicht verfügbar (Zugriff verweigert).
+
+------------------------------------------------------------------------
+PROJEKTSPEZIFISCHE BEGRIFFE
+------------------------------------------------------------------------
+
+Check-MailstoreAPI.ps1
+  PowerShell-Modul des Heimnetz-Monitors für die Mailstore-Überwachung.
+  Dreistufiger Ansatz:
+    Stufe 1: Ping + RDP-Port-Test (immer)
+    Stufe 2: PowerShell Remoting für Dienststatus (optional, wenn WinRM verfügbar)
+    Stufe 3: HTTP Administration API für Job-Ergebnisse (Hauptcheck)
+
+credentials.json
+  Verschlüsselte Passwort-Datei des Heimnetz-Monitors. Enthält alle gespeicherten
+  Zugangsdaten als Windows-verschlüsselte SecureStrings (ConvertTo-SecureString).
+  Wird durch Setup-Credentials.ps1 erstellt und verwaltet.
+
+Splatting (@params)
+  Technik um lange PowerShell-Befehle übersichtlich zu halten.
+  Parameter werden in einer Hashtable gesammelt und mit @variablenname übergeben.
+  Verhindert Zeilenumbruch-Probleme beim Kopieren aus der Dokumentation.
+
+Setup-Credentials.ps1
+  Interaktives Skript zum sicheren Eingeben und Speichern aller Passwörter
+  für den Heimnetz-Monitor. Erstellt credentials.json.
+
+Start-NetworkMonitor.ps1
+  Hauptskript des Heimnetz-Monitors. Lädt alle Module, prüft alle Geräte
+  und erstellt HTML-Reports sowie E-Mail-Benachrichtigungen.
+
+Send-Sofortbericht.ps1
+  Führt einen sofortigen Monitoring-Check durch und sendet das Ergebnis per E-Mail.
+  Nützlich für manuelle Checks zwischen den automatischen Intervallen.
+
+
+================================================================================
+  ANHANG – BEKANNTE PROBLEME UND LÖSUNGEN
+================================================================================
+
+Problem: MailStore API gibt "String was not recognized as a valid DateTime"
+Lösung:  Datumsformat muss exakt "yyyy-MM-ddTHH:mm:ss" sein (T zwischen Datum/Zeit)
+
+Problem: "Missing API argument fromIncluding"
+Lösung:  GetJobResults benötigt ALLE drei Parameter: fromIncluding, toExcluding, timeZoneId
+
+Problem: ConvertFrom-Json schlägt fehl mit BOM-Zeichen
+Lösung:  (Invoke-RestMethod @p).TrimStart([char]0xFEFF) | ConvertFrom-Json
+
+Problem: "401 Unauthorized"
+Lösung:  Falsches Passwort ODER falsche Credentials-Variable ($cred veraltet)
+         Neu eingeben: $cred = Get-Credential -UserName "admin"
+
+Problem: "Connection refused" auf Port 8463
+Lösung:  API in MailStore Server Service Configuration aktivieren (Häkchen setzen)
+         Danach: MailStore-Dienst neu starten
+
+Problem: Befehl wird beim Einfügen umgebrochen und schlägt fehl
+Lösung:  Befehle in kurze einzelne Zeilen aufteilen, Splatting (@{}) verwenden
+         Lange Strings vorher in Variablen speichern
+
+Problem: "RemoteCertificateNameMismatch"
+Lösung:  -SkipCertificateCheck Parameter zu Invoke-RestMethod hinzufügen
+
+Problem: Leerzeichen in URL-Parameter stört die Abfrage
+Lösung:  [Uri]::EscapeDataString() um Parameter-Werte wickeln
+
+================================================================================
+  KONFIGURATION – MAILSTORE IM HEIMNETZ-MONITOR
+================================================================================
+
+  IP-Adresse:    192.168.80.120
+  API-Port:      8463
+  Protokoll:     HTTPS (selbstsigniertes Zertifikat)
+  API-Benutzer:  admin
+  Timezone:      W. Europe Standard Time
+  Datumsformat:  yyyy-MM-ddTHH:mm:ss
+
+  Geprüfte Jobs (letzten 24h):
+    "Datenintegrität prüfen"  (VerifyStores)           täglich, läuft ~2 Stunden
+    "AR_Armin ... IMAP abholen" (RunProfile)            stündlich
+
+  Bekannte Probleme in MailStore:
+    andrearosbach27@gmail.com  → Gmail OAuth2 Problem (bekannt)
+    Andrea_IMAP_IONOS          → Warnung unverschlüsselt (bekannt)
+    Armin_FEP_Exchange         → Warnung unverschlüsselt (bekannt)
+
+================================================================================
+  ERSTELLT: 28.04.2026 | Heimnetz-Monitoring Projekt | Armin Rosbach-Villmar
+================================================================================

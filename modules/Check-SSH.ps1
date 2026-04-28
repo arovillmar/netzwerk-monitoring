@@ -16,8 +16,30 @@ function Check-SSH {
             $befehl
         )
 
-        $ausgabe = & ssh.exe @sshArgs 2>&1
-        $exitCode = $LASTEXITCODE
+        $job = Start-Job -ScriptBlock {
+            param($a)
+            $out  = & ssh.exe @a 2>&1
+            $code = $LASTEXITCODE
+            [PSCustomObject]@{ Output = $out; ExitCode = $code }
+        } -ArgumentList (,$sshArgs)
+
+        $fertig = Wait-Job $job -Timeout 10
+        if (-not $fertig) {
+            Stop-Job $job
+            Remove-Job $job -Force
+            return [PSCustomObject]@{
+                Status    = "FEHLER"
+                Uptime    = "n/a"
+                Disk_Info = "n/a"
+                RAM_Info  = "n/a"
+                Info      = "SSH Timeout (>10s) – Host erreichbar aber keine Antwort"
+            }
+        }
+
+        $jobResult = Receive-Job $job
+        Remove-Job $job -Force
+        $ausgabe  = $jobResult.Output
+        $exitCode = $jobResult.ExitCode
 
         if ($exitCode -ne 0) {
             return [PSCustomObject]@{

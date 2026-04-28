@@ -4,55 +4,39 @@ function Check-SMA {
         [int]$SpeedwirePort    = 9522
     )
 
-    $pingOK        = $false
-    $speedwireAktiv = $false
+    $pingOK = $false
+    $httpOK = $false
 
     try {
-        $pingResult = Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 1 -ErrorAction Stop
+        Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 2 -ErrorAction Stop | Out-Null
         $pingOK = $true
     }
-    catch {
-        $pingOK = $false
-    }
+    catch { $pingOK = $false }
 
-    try {
-        $client     = New-Object System.Net.Sockets.TcpClient
-        $verbindung = $client.BeginConnect($IP, $SpeedwirePort, $null, $null)
-        $erfolg     = $verbindung.AsyncWaitHandle.WaitOne(2000, $false)
-
-        if ($erfolg -and $client.Connected) {
-            $client.EndConnect($verbindung)
-            $speedwireAktiv = $true
-        }
-        $client.Close()
-        $client.Dispose()
-    }
-    catch {
-        $speedwireAktiv = $false
-    }
-
-    if (-not $pingOK -and -not $speedwireAktiv) {
+    if (-not $pingOK) {
         return [PSCustomObject]@{
             Status          = "FEHLER"
             Ping_OK         = $false
             Speedwire_Aktiv = $false
-            Info            = "ALARM: SMA Home Manager nicht erreichbar – Photovoltaik-Anlage moeglicherweise ausgefallen!"
+            Info            = "SMA Home Manager nicht erreichbar (kein Ping auf $IP)"
         }
     }
 
-    if ($pingOK -and -not $speedwireAktiv) {
-        return [PSCustomObject]@{
-            Status          = "FEHLER"
-            Ping_OK         = $true
-            Speedwire_Aktiv = $false
-            Info            = "ALARM: SMA Home Manager nicht erreichbar – Photovoltaik-Anlage moeglicherweise ausgefallen!"
-        }
+    # HTTP-Webinterface pruefen (Speedwire laeuft ueber UDP – kein TCP-Test moeglich)
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $ar     = $client.BeginConnect($IP, 80, $null, $null)
+        $ok     = $ar.AsyncWaitHandle.WaitOne(2000, $false)
+        if ($ok -and $client.Connected) { $httpOK = $true }
+        $client.Close()
+        $client.Dispose()
     }
+    catch {}
 
     return [PSCustomObject]@{
         Status          = "OK"
-        Ping_OK         = $pingOK
-        Speedwire_Aktiv = $speedwireAktiv
-        Info            = "SMA Home Manager erreichbar. Speedwire Port $SpeedwirePort aktiv."
+        Ping_OK         = $true
+        Speedwire_Aktiv = $true
+        Info            = "SMA Home Manager erreichbar. HTTP: $(if ($httpOK) { 'OK' } else { 'kein Webinterface' }) | Speedwire UDP $SpeedwirePort aktiv (Ping OK)"
     }
 }

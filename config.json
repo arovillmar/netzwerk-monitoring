@@ -82,15 +82,15 @@
       "ip": "192.168.80.120",
       "typ": "mailstore",
       "aktiv": true,
-      "api_port": 8474,
-      "checks": ["ping", "port_8474", "mailstore_api"],
+      "api_port": 8463,
+      "checks": ["ping", "port_8463", "mailstore_api"],
       "bekannte_probleme": [
         "andrearosbach27@gmail.com → 11 Fehlschläge (Gmail OAuth2 Problem)",
         "Andrea_IMAP_IONOS → Warnung unverschlüsselt",
         "Armin_FEP_Exchange → Warnung unverschlüsselt",
         "Armin_FEP_Rechnungseingänge → Warnung"
       ],
-      "info": "Mailstore Server v26.1.0.23845. VM auf SASCHA_SERVER (192.168.80.87). Management API Port: 8474. Lizenz: FEP Financial Engineering Partners.com. 5 Benutzer. Archiv: 545.439 Nachrichten."
+      "info": "Mailstore Server v26.1.0.23845. VM auf SASCHA_SERVER (192.168.80.87). Management API Port: 8463. Lizenz: FEP Financial Engineering Partners.com. 5 Benutzer. Archiv: 545.439 Nachrichten."
     },
     {
       "id": 7,

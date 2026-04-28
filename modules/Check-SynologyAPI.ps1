@@ -3,111 +3,31 @@ function Check-SynologyAPI {
         [Parameter(Mandatory)][string]$IP,
         [int]$Port                        = 5000,
         [Parameter(Mandatory)][string]$User,
-        [Parameter(Mandatory)][System.Security.SecureString]$PassSecure
+        [System.Security.SecureString]$PassSecure = $null
     )
 
-    $baseUrl = "http://${IP}:${Port}/webapi"
-    $sid     = $null
+    $befehl = "df -h 2>/dev/null | grep '/volume'; cat /proc/mdstat 2>/dev/null | grep -E 'md[0-9]+\s*:'; free -m 2>/dev/null | grep Mem; uptime 2>/dev/null"
 
-    function Invoke-SynoAPI {
-        param([string]$Url)
-        try {
-            return Invoke-RestMethod -Uri $Url -Method Get -TimeoutSec 10 -ErrorAction Stop
-        }
-        catch {
-            return $null
-        }
-    }
+    $sshArgs = @(
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-o", "StrictHostKeyChecking=no",
+        "-p", $Port,
+        "$User@$IP",
+        $befehl
+    )
 
-    try {
-        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($PassSecure)
-        $pass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    $job = Start-Job -ScriptBlock {
+        param($a)
+        $out  = & ssh.exe @a 2>&1
+        $code = $LASTEXITCODE
+        [PSCustomObject]@{ Output = $out; ExitCode = $code }
+    } -ArgumentList (,$sshArgs)
 
-        $loginUrl = "$baseUrl/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=$([Uri]::EscapeDataString($User))&passwd=$([Uri]::EscapeDataString($pass))&format=sid"
-        $pass = $null
-
-        $loginResp = Invoke-SynoAPI -Url $loginUrl
-        if (-not $loginResp -or -not $loginResp.success) {
-            $fehler = if ($loginResp.error.code) { "Fehlercode: $($loginResp.error.code)" } else { "Keine Antwort" }
-            return [PSCustomObject]@{
-                Status       = "FEHLER"
-                Volumes      = @()
-                SMART_Status = @()
-                CPU_Temp     = "n/a"
-                Uptime       = "n/a"
-                Warnung      = $false
-                Info         = "DSM Login fehlgeschlagen – $fehler"
-            }
-        }
-
-        $sid = $loginResp.data.sid
-
-        # Volumes / Speicher
-        $volumeUrl  = "$baseUrl/entry.cgi?api=SYNO.Storage.CGI.Storage&version=1&method=load_info&_sid=$sid"
-        $volumeResp = Invoke-SynoAPI -Url $volumeUrl
-        $volumes    = @()
-        $warnung    = $false
-
-        if ($volumeResp -and $volumeResp.success -and $volumeResp.data.volumes) {
-            foreach ($vol in $volumeResp.data.volumes) {
-                $groesseGB = [Math]::Round($vol.size.total / 1GB, 1)
-                $freiGB    = [Math]::Round($vol.size.avail / 1GB, 1)
-                $belegtGB  = $groesseGB - $freiGB
-                $prozent   = if ($groesseGB -gt 0) { [Math]::Round(($belegtGB / $groesseGB) * 100, 1) } else { 0 }
-                if ($prozent -gt 80) { $warnung = $true }
-
-                $volumes += [PSCustomObject]@{
-                    Name        = $vol.id
-                    Groesse_GB  = $groesseGB
-                    Frei_GB     = $freiGB
-                    Prozent     = $prozent
-                    RAID_Status = if ($vol.status) { $vol.status } else { "n/a" }
-                }
-            }
-        }
-
-        # SMART
-        $smartUrl  = "$baseUrl/entry.cgi?api=SYNO.Storage.CGI.Smart&version=1&method=start&_sid=$sid"
-        $smartResp = Invoke-SynoAPI -Url $smartUrl
-        $smartList = @()
-
-        if ($smartResp -and $smartResp.success -and $smartResp.data.disks) {
-            foreach ($disk in $smartResp.data.disks) {
-                $smartList += [PSCustomObject]@{
-                    Disk   = if ($disk.name) { $disk.name } else { $disk.id }
-                    Status = if ($disk.smart_status) { $disk.smart_status } else { "n/a" }
-                    Temp_C = if ($disk.temp -ne $null) { $disk.temp } else { "n/a" }
-                }
-            }
-        }
-
-        # System Info
-        $sysUrl  = "$baseUrl/entry.cgi?api=SYNO.Core.System&version=1&method=info&_sid=$sid"
-        $sysResp = Invoke-SynoAPI -Url $sysUrl
-        $cpuTemp = "n/a"
-        $uptime  = "n/a"
-
-        if ($sysResp -and $sysResp.success -and $sysResp.data) {
-            $cpuTemp = if ($sysResp.data.cpu_temp -ne $null)  { "$($sysResp.data.cpu_temp)°C" } else { "n/a" }
-            $uptime  = if ($sysResp.data.up_time)             { $sysResp.data.up_time }         else { "n/a" }
-        }
-
-        $gesamtStatus = if ($warnung) { "WARNUNG" } else { "OK" }
-        $infoText     = "DSM erreichbar. $($volumes.Count) Volume(s), $($smartList.Count) Disk(s)."
-        if ($warnung) { $infoText += " Mindestens ein Volume > 80% belegt!" }
-
-        return [PSCustomObject]@{
-            Status       = $gesamtStatus
-            Volumes      = $volumes
-            SMART_Status = $smartList
-            CPU_Temp     = $cpuTemp
-            Uptime       = $uptime
-            Warnung      = $warnung
-            Info         = $infoText
-        }
-    }
-    catch {
+    $fertig = Wait-Job $job -Timeout 12
+    if (-not $fertig) {
+        Stop-Job $job
+        Remove-Job $job -Force
         return [PSCustomObject]@{
             Status       = "FEHLER"
             Volumes      = @()
@@ -115,13 +35,72 @@ function Check-SynologyAPI {
             CPU_Temp     = "n/a"
             Uptime       = "n/a"
             Warnung      = $false
-            Info         = "Ausnahme: $($_.Exception.Message)"
+            Info         = "SSH Timeout – Synology $IP nicht erreichbar"
         }
     }
-    finally {
-        if ($sid) {
-            $logoutUrl = "$baseUrl/auth.cgi?api=SYNO.API.Auth&method=logout&_sid=$sid"
-            Invoke-SynoAPI -Url $logoutUrl | Out-Null
+
+    $result = Receive-Job $job
+    Remove-Job $job -Force
+
+    if ($result.ExitCode -ne 0) {
+        return [PSCustomObject]@{
+            Status       = "FEHLER"
+            Volumes      = @()
+            SMART_Status = @()
+            CPU_Temp     = "n/a"
+            Uptime       = "n/a"
+            Warnung      = $false
+            Info         = "SSH fehlgeschlagen (Exit $($result.ExitCode)) – SSH-Key fuer $User@$IP eingerichtet?"
         }
+    }
+
+    $zeilen  = $result.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    $volumes = @()
+    $warnung = $false
+
+    foreach ($zeile in $zeilen) {
+        if ($zeile -match '/volume') {
+            $t = $zeile -split '\s+' | Where-Object { $_ -ne "" }
+            if ($t.Count -ge 6) {
+                $mountPoint = $t[5]
+                # Nur echte Volumes (/volume1, /volume2 ...) – keine Sub-Pfade
+                if ($mountPoint -notmatch '^/volume\d+$') { continue }
+                $pStr    = $t[4] -replace '%', ''
+                $prozent = 0
+                [int]::TryParse($pStr, [ref]$prozent) | Out-Null
+                if ($prozent -gt 80) { $warnung = $true }
+                $volumes += [PSCustomObject]@{
+                    Name        = $mountPoint
+                    Groesse_GB  = $t[1]
+                    Frei_GB     = $t[3]
+                    Prozent     = $prozent
+                    RAID_Status = "n/a"
+                }
+            }
+        }
+    }
+
+    $raidZeilen  = $zeilen | Where-Object { $_ -match '^md[0-9]' }
+    $uptimeZeile = $zeilen | Where-Object { $_ -match '\bup\b' } | Select-Object -Last 1
+    $uptime      = if ($uptimeZeile) {
+        if ($uptimeZeile -match 'up\s+(.+?),\s+\d+ user') { $Matches[1].Trim() } else { $uptimeZeile }
+    } else { "n/a" }
+
+    $gesamtStatus = if ($warnung) { "WARNUNG" } else { "OK" }
+    $infoText     = "SSH OK. $($volumes.Count) Volume(s)."
+    if ($volumes.Count -gt 0) {
+        $infoText += " " + ($volumes | ForEach-Object { "$($_.Name): $($_.Prozent)%" }) -join " | "
+    }
+    if ($warnung)       { $infoText += " – Warnung: Volume > 80% belegt!" }
+    if ($raidZeilen)    { $infoText += " | RAID: $($raidZeilen -join ', ')" }
+
+    return [PSCustomObject]@{
+        Status       = $gesamtStatus
+        Volumes      = $volumes
+        SMART_Status = @()
+        CPU_Temp     = "n/a"
+        Uptime       = $uptime
+        Warnung      = $warnung
+        Info         = $infoText
     }
 }
