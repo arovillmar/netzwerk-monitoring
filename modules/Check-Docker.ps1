@@ -1,106 +1,75 @@
 function Check-Docker {
     param(
-        [string]$IP      = "192.168.80.206",
-        [int]$SSHPort    = 822,
-        [string]$SSHUser = "Armin"
+        [string]$IP          = "192.168.80.206",
+        [int]$SSHPort        = 822,
+        [string]$SSHUser     = "Armin",
+        [int]$DockerPort     = 3000,
+        [string]$AppName     = "maennerballet",
+        [int]$TimeoutMs      = 3000
     )
 
-    $composePfad = "/volume2/docker/maennerballet/docker-compose.yml"
-
-    function Invoke-SSH {
-        param([string]$Befehl)
-        $args = @(
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=5",
-            "-o", "StrictHostKeyChecking=no",
-            "-p", $SSHPort,
-            "$SSHUser@$IP",
-            $Befehl
-        )
-        $ausgabe  = & ssh.exe @args 2>&1
-        $exitCode = $LASTEXITCODE
-        return [PSCustomObject]@{ Ausgabe = $ausgabe; ExitCode = $exitCode }
-    }
-
+    # TCP-Port-Check: Ist die App erreichbar?
+    $portOffen = $false
     try {
-        $psBefehl  = "sudo docker compose -f $composePfad ps --format json 2>/dev/null || sudo docker compose -f $composePfad ps 2>&1"
-        $psResult  = Invoke-SSH -Befehl $psBefehl
+        $tcp  = New-Object System.Net.Sockets.TcpClient
+        $conn = $tcp.BeginConnect($IP, $DockerPort, $null, $null)
+        $portOffen = $conn.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        if ($portOffen) { try { $tcp.EndConnect($conn) } catch {} }
+        $tcp.Close(); $tcp.Dispose()
+    } catch { $portOffen = $false }
 
-        if ($psResult.ExitCode -ne 0) {
-            return [PSCustomObject]@{
-                Status           = "FEHLER"
-                Container_Name   = "n/a"
-                Container_Status = "n/a"
-                Container_Uptime = "n/a"
-                Port_Mapping     = "n/a"
-                Letzte_Logs      = @()
-                Info             = "Docker-Abfrage fehlgeschlagen (Exit $($psResult.ExitCode)): $($psResult.Ausgabe -join ' ')"
-            }
-        }
-
-        $ausgabeText = $psResult.Ausgabe -join "`n"
-
-        $containerName   = "n/a"
-        $containerStatus = "n/a"
-        $containerUptime = "n/a"
-        $portMapping     = "n/a"
-
-        try {
-            $json = $psResult.Ausgabe | Where-Object { $_ -match "^\{" } | ConvertFrom-Json -ErrorAction Stop | Select-Object -First 1
-            if ($json) {
-                $containerName   = if ($json.Name)    { $json.Name }    else { if ($json.Service) { $json.Service } else { "n/a" } }
-                $containerStatus = if ($json.State)   { $json.State }   else { if ($json.Status)  { $json.Status }  else { "n/a" } }
-                $containerUptime = if ($json.RunningFor) { $json.RunningFor } else { "n/a" }
-                $portMapping     = if ($json.Publishers) {
-                    ($json.Publishers | ForEach-Object { "$($_.PublishedPort):$($_.TargetPort)" }) -join ", "
-                } else { "n/a" }
-            }
-        }
-        catch {
-            # Fallback: Text-Parsing wenn kein JSON
-            $zeilen = $psResult.Ausgabe | Where-Object { $_ -notmatch "^NAME" -and $_ -match "\S" }
-            if ($zeilen.Count -gt 0) {
-                $teile           = $zeilen[0] -split "\s{2,}"
-                $containerName   = if ($teile.Count -ge 1) { $teile[0].Trim() } else { "n/a" }
-                $containerStatus = if ($ausgabeText -match "Up")      { "running" }
-                                   elseif ($ausgabeText -match "Exit") { "exited"  }
-                                   else                                { "unknown" }
-                $portMapping     = if ($teile.Count -ge 4) { $teile[3].Trim() } else { "n/a" }
-            }
-        }
-
-        # Letzte 5 Log-Zeilen
-        $logBefehl = "sudo docker compose -f $composePfad logs --tail=5 app 2>&1"
-        $logResult = Invoke-SSH -Befehl $logBefehl
-        $letzteLogs = if ($logResult.ExitCode -eq 0) {
-            $logResult.Ausgabe | Where-Object { $_ -match "\S" } | Select-Object -Last 5
-        } else { @("Log-Abfrage fehlgeschlagen") }
-
-        $gesamtStatus = switch -Regex ($containerStatus) {
-            "running|up"       { "OK"     }
-            "restarting"       { "WARNUNG" }
-            default            { "FEHLER"  }
-        }
-
-        return [PSCustomObject]@{
-            Status           = $gesamtStatus
-            Container_Name   = $containerName
-            Container_Status = $containerStatus
-            Container_Uptime = $containerUptime
-            Port_Mapping     = $portMapping
-            Letzte_Logs      = $letzteLogs
-            Info             = "Docker-Abfrage erfolgreich. Container: $containerName ($containerStatus)"
-        }
-    }
-    catch {
+    if (-not $portOffen) {
         return [PSCustomObject]@{
             Status           = "FEHLER"
-            Container_Name   = "n/a"
-            Container_Status = "n/a"
+            Container_Name   = $AppName
+            Container_Status = "nicht erreichbar"
             Container_Uptime = "n/a"
-            Port_Mapping     = "n/a"
+            Port_Mapping     = "Port $DockerPort"
             Letzte_Logs      = @()
-            Info             = "Ausnahme: $($_.Exception.Message)"
+            Info             = "Docker-App $($AppName): Port $DockerPort nicht erreichbar – Container gestoppt?"
         }
+    }
+
+    # Zusätzlich: SSH-basierte Container-Infos (optional, schlägt fehl wenn kein docker-Gruppen-Zugriff)
+    $containerStatus = "running"
+    $containerUptime = "n/a"
+    $dockerInfoOk    = $false
+
+    $dockerBin = "/var/packages/ContainerManager/target/usr/bin/docker"
+    $sshArgs = @(
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-o", "StrictHostKeyChecking=no",
+        "-p", $SSHPort,
+        "$SSHUser@$IP",
+        "$dockerBin ps --filter name=$AppName --format '{{.Status}}' 2>/dev/null"
+    )
+    try {
+        $job    = Start-Job -ScriptBlock { param($a) $out = & ssh.exe @a 2>&1; [PSCustomObject]@{ Output=$out; ExitCode=$LASTEXITCODE } } -ArgumentList (,$sshArgs)
+        $fertig = Wait-Job $job -Timeout 8
+        if ($fertig) {
+            $result = Receive-Job $job
+            if ($result.ExitCode -eq 0 -and $result.Output -match "\S") {
+                $containerStatus = ($result.Output -join " ").Trim()
+                $dockerInfoOk    = $true
+            }
+        }
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+    } catch {}
+
+    $infoText = if ($dockerInfoOk) {
+        "Docker $($AppName): Port $DockerPort offen | Status: $containerStatus"
+    } else {
+        "Docker $($AppName): Port $DockerPort offen"
+    }
+
+    return [PSCustomObject]@{
+        Status           = "OK"
+        Container_Name   = $AppName
+        Container_Status = $containerStatus
+        Container_Uptime = $containerUptime
+        Port_Mapping     = "Port $DockerPort"
+        Letzte_Logs      = @()
+        Info             = $infoText
     }
 }
