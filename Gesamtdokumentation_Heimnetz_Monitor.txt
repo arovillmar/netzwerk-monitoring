@@ -1,0 +1,1335 @@
+================================================================================
+  HEIMNETZ MONITOR – GESAMTDOKUMENTATION
+  Projektpfad: C:\Armin\claude_Projekte\Netzwerk-Monitoring\
+  GitHub:      https://github.com/arovillmar/netzwerk-monitoring (privat)
+  Erstellt:    29.04.2026
+  Version:     2.0 (Stand nach MailStore-API-Integration)
+================================================================================
+
+  Dieses System überwacht automatisch 17 Geräte im Heimnetz 192.168.80.0/24,
+  sendet Alarm-E-Mails bei Problemen und erstellt HTML-Berichte.
+  Alle 15 Minuten läuft ein vollständiger Check per Windows Task Scheduler.
+
+
+================================================================================
+  ÜBERSICHT – DATEISTRUKTUR
+================================================================================
+
+  C:\Armin\claude_Projekte\Netzwerk-Monitoring\
+  │
+  ├── Start-NetworkMonitor.ps1       Hauptskript – startet alle Checks
+  ├── Send-Sofortbericht.ps1         Manueller sofortiger Check + E-Mail
+  ├── Setup-Credentials.ps1          Interaktive Passwort-Eingabe und -Speicherung
+  ├── Setup-Task.ps1                 Richtet Windows Task Scheduler ein
+  ├── Create-Projektdoku.ps1         Erstellt Projektdokumentation
+  ├── Test-Email.ps1                 Testet E-Mail-Versand isoliert
+  ├── Test-Kameras.ps1               Testet Kameras isoliert
+  ├── Test-ReoinkLogin.ps1           Testet Reolink-API-Login isoliert
+  │
+  ├── config.json                    Gerätekonfiguration + Einstellungen
+  ├── credentials.json               Verschlüsselte Passwörter (nicht in Git!)
+  ├── last_status.json               Anti-Spam-Tracking für E-Mail-Alarme
+  │
+  ├── modules\                       Alle Check-Module (PowerShell-Funktionen)
+  │   ├── Check-Ping.ps1
+  │   ├── Check-Port.ps1
+  │   ├── Check-SSH.ps1
+  │   ├── Check-Camera.ps1
+  │   ├── Check-PiholeAPI.ps1
+  │   ├── Check-NtopngAPI.ps1
+  │   ├── Check-SynologyAPI.ps1
+  │   ├── Check-MailstoreAPI.ps1
+  │   ├── Check-ELWA.ps1
+  │   ├── Check-SMA.ps1
+  │   ├── Check-Powerline.ps1
+  │   ├── Check-Docker.ps1
+  │   ├── Check-ExternalLogins.ps1
+  │   ├── Check-EmailDelivery.ps1
+  │   ├── New-HtmlReport.ps1
+  │   ├── Send-Alert.ps1
+  │   └── Push-GitCommit.ps1
+  │
+  ├── reports\                       HTML-Berichte (automatisch erstellt)
+  ├── logs\                          Tages-Logdateien (Monitor_YYYYMMDD.log)
+  └── tools\ffmpeg\bin\ffprobe.exe   Für Kamera-Stream-Analyse
+
+
+================================================================================
+  ÜBERWACHTE GERÄTE
+================================================================================
+
+  ID  Name                    IP               Typ
+  --  ----                    --               ---
+   1  Fritz!Box               192.168.80.1     Router / Gateway
+   2  Raspberry Pi 5          192.168.80.20    Linux-Server (Pi-hole, ntopng)
+   3  Synology DS1525+        192.168.80.206   NAS (Haupt-NAS, Docker)
+   4  Synology DS723+         192.168.80.207   NAS (Backup-NAS)
+   5  SASCHA_SERVER           192.168.80.87    Windows 10 Pro (VM-Host)
+   6  Mailstore VM            192.168.80.120   MailStore Server v26.1.0.23845
+   7  SMA Home Manager 2      192.168.80.49    Photovoltaik-Steuerung
+   8  AC ELWA-E Heizstab      192.168.80.122   Frischwasser / PV-Heizung
+   9  Powerline Adapter 1     192.168.80.75    Fritz!DECT 546E
+  10  Powerline Adapter 2     192.168.80.77    Fritz!DECT 546E
+  11  Powerline Adapter 3     192.168.80.138   Fritz!DECT 546E
+  12  Reolink Garten-2        192.168.80.76    IP-Kamera RLC-820A
+  13  Reolink Garten-1        192.168.80.127   IP-Kamera RLC-820A
+  14  Reolink Eingang         192.168.80.130   IP-Kamera RLC-843A
+  15  Reolink Keller          192.168.80.171   IP-Kamera RLC-810A
+  16  Reolink Garten-4        192.168.80.172   IP-Kamera RLC-820A
+  17  INSTAR Kamera 1         192.168.80.67    IP-Kamera
+  18  INSTAR Kamera 2         (deaktiviert – IP noch nicht eingetragen)
+
+
+================================================================================
+  TEIL A – MODULÜBERSICHT
+================================================================================
+
+  17 Module in modules\ – jedes Modul ist eine PowerShell-Funktion.
+  Alle Check-Module geben ein PSCustomObject mit mindestens folgenden
+  Feldern zurück: Status ("OK" / "WARNUNG" / "FEHLER"), Info (Textbeschreibung)
+
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  CHECK-MODULE (Geräteprüfungen)                                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  1.  Check-Ping.ps1
+  2.  Check-Port.ps1
+  3.  Check-SSH.ps1
+  4.  Check-Camera.ps1
+  5.  Check-PiholeAPI.ps1
+  6.  Check-NtopngAPI.ps1
+  7.  Check-SynologyAPI.ps1
+  8.  Check-MailstoreAPI.ps1
+  9.  Check-ELWA.ps1
+  10. Check-SMA.ps1
+  11. Check-Powerline.ps1
+  12. Check-Docker.ps1
+  13. Check-ExternalLogins.ps1
+  14. Check-EmailDelivery.ps1
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  HILFSMODULE (keine Geräteprüfungen)                                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  15. New-HtmlReport.ps1
+  16. Send-Alert.ps1
+  17. Push-GitCommit.ps1
+
+
+================================================================================
+  TEIL B – ZWECK UND DETAILS DER MODULE
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 1 – Check-Ping.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-Ping
+  Zweck:       Grundlegender Erreichbarkeitstest jedes Geräts per ICMP-Ping.
+               Erster Check für alle Geräte – schlägt er fehl, werden
+               weiterführende Checks meist übersprungen.
+
+  Parameter:
+    $IP          IP-Adresse des Zielgeräts
+    $TimeoutMs   Wartezeit in Millisekunden (Standard: 1000ms)
+
+  Technik:     Test-Connection (ICMP Echo Request / Ping)
+
+  Rückgabe:
+    Status       "OK" oder "FEHLER"
+    Latenz_ms    Antwortzeit in Millisekunden
+    Info         Beschreibungstext
+
+  Besonderheit: Misst die Latenz und gibt sie für die Konsolenanzeige zurück.
+                LAN-Geräte: 0–2ms, WLAN: 3–10ms, Powerline: bis 700ms möglich.
+
+  Verwendet für: Alle 17 Geräte als Basis-Check.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 2 – Check-Port.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-Port
+  Zweck:       Prüft ob ein bestimmter TCP-Port auf einem Gerät geöffnet
+               und erreichbar ist. Universell einsetzbar für alle Port-Checks.
+
+  Parameter:
+    $IP          IP-Adresse
+    $Port        TCP-Port (z.B. 80, 443, 3389, 8463)
+    $TimeoutMs   Wartezeit (Standard: 2000ms)
+
+  Technik:     Asynchroner TCP-Connect (System.Net.Sockets.TcpClient)
+               BeginConnect + AsyncWaitHandle.WaitOne für nicht-blockierenden Test.
+
+  Rückgabe:
+    Status       "OFFEN" oder "GESCHLOSSEN"
+    Port         geprüfter Port
+    Zeit_ms      Verbindungszeit
+
+  Verwendet für: Fritz!Box (80), SASCHA_SERVER (3389), Mailstore (8463),
+                 Reolink-Kameras (554, 80, 9000), INSTAR (554, 8080)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 3 – Check-SSH.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-SSH
+  Zweck:       Verbindet sich per SSH auf Linux-Geräte, führt Systembefehle aus
+               und wertet Uptime, Festplattennutzung und RAM-Status aus.
+
+  Parameter:
+    $IP          IP-Adresse
+    $Port        SSH-Port (Standard: 22, Synology: 822)
+    $User        SSH-Benutzername
+
+  SSH-Befehl:  "uptime && df -h / && free -m"
+               Liefert: Systemlaufzeit, Root-Partition-Auslastung, RAM-Belegung
+
+  Technik:     ssh.exe (OpenSSH, in Windows 10/11 integriert)
+               Key-Authentifizierung (kein Passwort im Code)
+               Start-Job für echtes 10-Sekunden-Timeout
+
+  SSH-Optionen:
+    BatchMode=yes           Kein interaktiver Passwortdialog
+    ConnectTimeout=5        5 Sekunden Verbindungsaufbau-Timeout
+    StrictHostKeyChecking=no  Automatische Host-Key-Akzeptanz
+
+  Rückgabe:
+    Status       "OK" oder "FEHLER"
+    Uptime       Systemlaufzeit-String
+    Disk_Info    Root-Partition-Auslastung
+    RAM_Info     RAM-Belegung (Mem: total used free)
+    Info         Zusammenfassung
+
+  Verwendet für: Raspberry Pi 5 (Port 22, User: pi)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 4 – Check-Camera.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-Camera
+  Zweck:       Vollständiger Kamera-Check mit fünf Prüfstufen:
+               Ping → RTSP-Port → HTTP-Port → Stream-Analyse → API-Login
+
+  Parameter:
+    $IP                  IP-Adresse der Kamera
+    $Typ                 "reolink" oder "instar"
+    $HttpPort            HTTP-Port aus config.json (80, 8080 oder 9000)
+    $FfprobePfad         Pfad zu ffprobe.exe (optional)
+    $RtspUrl             Vollständige RTSP-URL (optional)
+    $Name                Gerätename für Lockout-Tracking
+    $ReolinkUser         API-Benutzername (Standard: "admin")
+    $ReolinkPassSecure   Passwort als SecureString (optional)
+
+  Prüfstufen:
+    1. ICMP-Ping
+    2. TCP-Port-Test auf RTSP/554
+    3. TCP-Port-Test auf HTTP-Port (80, 8080 oder 9000)
+    4. ffprobe Stream-Analyse (Auflösung, Codec) – nur wenn RTSP offen
+    5. Reolink JSON-API: Login → GetDevInfo → Snapshot → Logout
+
+  Technik:
+    RTSP/HTTP:   System.Net.Sockets.TcpClient (asynchroner TCP-Test)
+    ffprobe:     Externer Prozess via Start-Job (12s Timeout)
+    Reolink API: Invoke-RestMethod (POST JSON, HTTPS mit SkipCertificateCheck)
+    Snapshot:    Invoke-WebRequest (Bild-Download, Base64-kodiert im Rückgabeobjekt)
+
+  Reolink API-Endpunkte (automatische Fallback-Suche):
+    https://<IP>/api.cgi
+    https://<IP>/cgi-bin/api.cgi
+
+  Lockout-Schutz:
+    Nach 3 fehlgeschlagenen API-Logins wird die Kamera-IP für 60 Minuten
+    gesperrt. Verhindert Account-Sperrung durch den Kamera-eigenen Schutz.
+    Speicherdatei: logs\camera_lockout.json
+
+  Statuslogik:
+    FEHLER   Kein Ping ODER weder RTSP noch HTTP erreichbar
+    WARNUNG  Ping OK, aber RTSP oder HTTP fehlt
+    OK       Ping + RTSP + HTTP erreichbar
+
+  Verwendet für: Alle 5 Reolink-Kameras, INSTAR Kamera 1
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 5 – Check-PiholeAPI.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-PiholeAPI
+  Zweck:       Überwacht Pi-hole v6 Statistiken über die REST-API.
+               Prüft Abfrageanzahl, Blockierrate, aktive Clients und Gravity-Liste.
+
+  Parameter:
+    $IP          IP des Raspberry Pi (Standard: 192.168.80.20)
+    $PassSecure  Pi-hole Admin-Passwort als SecureString
+
+  API-Ablauf (zweistufig):
+    Stufe 1: POST http://<IP>/api/auth   → Passwort senden → SID (Session-ID) erhalten
+    Stufe 2: GET  http://<IP>/api/stats/summary  mit Header "sid: <SID>"
+    Abschluss: DELETE http://<IP>/api/auth  → Session beenden
+
+  Ausgewertete Felder:
+    queries.total             Gesamtabfragen heute
+    queries.blocked           Blockierte Abfragen heute
+    clients.active            Aktive Netzwerk-Clients
+    gravity.domains_being_blocked  Anzahl blockierter Domains in der Liste
+
+  Warnlogik:   WARNUNG wenn Blockierrate < 5% UND mehr als 100 Abfragen
+               (deutet auf deaktivierten Pi-hole hin)
+
+  Rückgabe:
+    Status, Queries_Heute, Blockierrate, Aktive_Clients, Gravity_Liste, Info
+
+  Verwendet für: Raspberry Pi 5 (192.168.80.20)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 6 – Check-NtopngAPI.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-NtopngAPI
+  Zweck:       Prüft ob ntopng (Netzwerk-Traffic-Monitor) erreichbar ist
+               und liest aktive Hosts und Alert-Anzahl aus.
+
+  Parameter:
+    $IP          IP-Adresse (Standard: 192.168.80.20)
+    $Port        Port (Standard: 3000)
+
+  API-Endpunkt: GET http://<IP>:3000/lua/rest/v2/get/ntopng/info.lua
+
+  Technik:     Invoke-RestMethod (GET, kein Auth, öffentlicher Endpunkt)
+
+  Rückgabe:
+    Status, Aktive_Hosts, Alerts, Info (inkl. ntopng-Version)
+
+  Verwendet für: Raspberry Pi 5 ntopng-Instanz
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 7 – Check-SynologyAPI.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-SynologyAPI
+  Zweck:       Überwacht Synology NAS: Volume-Belegung, RAID-Status, Uptime.
+               Warnt wenn ein Volume mehr als 80% belegt ist.
+
+  Parameter:
+    $IP          IP des NAS
+    $Port        SSH-Port (Standard 5000, tatsächlich SSH-Port 822)
+    $User        SSH-Benutzername (Armin)
+    $PassSecure  (nicht mehr genutzt – Key-Auth)
+
+  SSH-Befehl (4-in-1):
+    "df -h 2>/dev/null | grep '/volume';
+     cat /proc/mdstat 2>/dev/null | grep -E 'md[0-9]+\s*:';
+     free -m 2>/dev/null | grep Mem;
+     uptime 2>/dev/null"
+
+  Auswertung:
+    df -h        Festplattennutzung pro Volume (/volume1, /volume2 ...)
+    /proc/mdstat Linux Software-RAID Status (md0, md1, md2 ...)
+    free -m      RAM-Belegung
+    uptime       Systemlaufzeit
+
+  Filterregel: Nur Mounts die exakt auf /volume\d+$ passen werden gewertet
+               (keine Sub-Mounts wie /volume1/@eaDir etc.)
+
+  Technik:     SSH via ssh.exe (Start-Job, 12s Timeout)
+               Key-Authentifizierung (SSH-Key muss eingerichtet sein)
+
+  Rückgabe:
+    Status, Volumes (Array mit Name/Groesse/Frei/Prozent), Uptime, Info
+
+  Verwendet für: DS1525+ (192.168.80.206, Port 822), DS723+ (192.168.80.207)
+
+  Hinweis: Ursprünglich über DSM REST-API (Port 5000) – umgestellt auf SSH,
+           da keine Passwörter für die API-Authentifizierung nötig sind
+           und die SSH-Key-Methode robuster ist.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 8 – Check-MailstoreAPI.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-MailstoreAPI
+  Zweck:       Überwacht den MailStore Server auf der VM 192.168.80.120.
+               Dreistufiger Ansatz: Ping → Windows-Dienst → API-Job-Auswertung
+
+  Parameter:
+    $IP            IP der Mailstore-VM (Standard: 192.168.80.120)
+    $User          MailStore Admin-Benutzer (Standard: "admin")
+    $PassSecure    MailStore Admin-Passwort als SecureString
+    $WinUser       Windows-Benutzer für Remoting (Standard: "Administrator")
+    $WinPassSecure Windows-Passwort für Remoting als SecureString (optional)
+    $ApiPort       API-Port (Standard: 8463)
+
+  STUFE 1 – Ping + RDP-Port:
+    Test-Connection → VM erreichbar?
+    TCP-Test Port 3389 → RDP-Port offen?
+    Bei Ping-Fehler: Sofortrückgabe mit FEHLER
+
+  STUFE 2 – PowerShell Remoting (optional):
+    New-PSSession zum Windows-Host → Invoke-Command
+    Get-Service → prüft ob MailStore-Dienst läuft
+    Funktioniert nur wenn WinRM auf der VM aktiv ist
+    Schlägt fehl → wird übersprungen, Check läuft trotzdem weiter
+
+  STUFE 3 – MailStore Administration API (HTTP POST, Port 8463):
+    Wichtig: API muss in "MailStore Server Service Configuration" aktiviert sein!
+
+    GetServerInfo → API erreichbar? (Version, Machine-Name)
+    GetJobs       → Job-Namen laden (für sprechende Ausgabe)
+    GetJobResults → Ergebnisse letzter 24h (pro Job nur neuestes Ergebnis)
+
+    HTTP Basic Auth: Base64(admin:passwort) im Authorization-Header
+    Selbstsigniertes Zertifikat → SkipCertificateCheck = $true
+    BOM-Behandlung: .TrimStart([char]0xFEFF) vor ConvertFrom-Json
+
+  KRITISCH: Datumsformat für GetJobResults
+    Korrekt:     yyyy-MM-ddTHH:mm:ss   (Beispiel: 2026-04-28T14:00:00)
+    FALSCH:      yyyy-MM-dd HH:mm:ss   (Leerzeichen statt T)
+    FALSCH:      dd.MM.yyyy HH:mm:ss   (deutsches Format)
+    FALSCH:      MM/dd/yyyy HH:mm:ss   (US-Format)
+    FALSCH:      ISO 8601 mit +02:00   (Timezone-Suffix nicht akzeptiert)
+
+  GetJobResults Pflichtparameter:
+    fromIncluding    Startzeit (yyyy-MM-ddTHH:mm:ss)
+    toExcluding      Endzeit   (yyyy-MM-ddTHH:mm:ss)
+    timeZoneId       Zeitzone  ("W. Europe Standard Time")
+
+  Statuslogik:
+    FEHLER   VM nicht erreichbar ODER Dienst gestoppt (wenn Remoting OK)
+    WARNUNG  Mindestens ein Job mit result="failed" in den letzten 24h
+    OK       Alle Jobs succeeded oder cancelled
+
+  Rückgabe:
+    Status, VM_Erreichbar, RDP_Offen, Remoting_OK, Dienst_Laeuft,
+    API_Verfuegbar, Fehler_Jobs, Archiv_Gesamt, Jobs, Kritische_Jobs,
+    Antwortzeit_ms, Info
+
+  Verwendete API-Endpunkte:
+    https://192.168.80.120:8463/api/invoke/GetServerInfo
+    https://192.168.80.120:8463/api/invoke/GetJobs
+    https://192.168.80.120:8463/api/invoke/GetJobResults
+    https://192.168.80.120:8463/api/get-metadata   (nur für Dokumentation/Test)
+    https://192.168.80.120:8463/api/invoke/GetTimeZones (nur für Test)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 9 – Check-ELWA.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-ELWA
+  Zweck:       Überwacht den AC ELWA-E Frischwasser-Heizstab von my-PV.
+               Liest Temperatur, Heizleistung und Betriebszustand aus.
+
+  Parameter:
+    $IP        IP des ELWA-E (Standard: 192.168.80.122)
+    $TempMax   Temperaturwarnschwelle in °C (Standard: 75°C)
+
+  API-Endpunkt:  GET http://<IP>/data.jsn
+  Kein Auth, öffentlicher JSON-Endpunkt.
+
+  Ausgewertete Felder:
+    temp1         Wassertemperatur in 1/10 °C (! durch 10 dividieren!)
+    power         Aktuelle Heizleistung in Watt
+    blockactive   PV-Blockierung aktiv (kein Solarüberschuss)
+    boostactive   Boost-Modus (Zusatzheizung) aktiv
+    ctrlstate     Steuerungszustand (0=aus, 1=Warten, ...)
+    fwversion     Firmware-Version
+    cloudstate    Cloud-Verbindungsstatus (4=verbunden)
+
+  Warnlogik:   WARNUNG wenn Temperatur > TempMax (Überhitzungsschutz)
+
+  Rückgabe:
+    Status, Temperatur, Leistung_W, BlockActive, BoostActive,
+    CtrlState, FwVersion, CloudState, Antwortzeit_ms, Info
+
+  Besonderheit: temp1 kommt in 1/10 °C – z.B. 525 bedeutet 52.5°C!
+                Diese Umrechnung ist nicht dokumentiert und wurde durch
+                Analyse ermittelt.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 10 – Check-SMA.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-SMA
+  Zweck:       Prüft Erreichbarkeit des SMA Home Manager 2 (Photovoltaik).
+
+  Parameter:
+    $IP              IP des SMA Home Manager (Standard: 192.168.80.49)
+    $SpeedwirePort   Speedwire-Port (Standard: 9522, nur zur Info)
+
+  Prüfablauf:
+    1. ICMP-Ping (Hauptcheck)
+    2. TCP-Test auf Port 80 (HTTP-Webinterface)
+
+  WICHTIG: Speedwire verwendet UDP, nicht TCP!
+    Ein TCP-Test auf Port 9522 ergibt immer "geschlossen" – das ist falsch.
+    Deshalb wird nur Ping + HTTP-Port 80 geprüft.
+    Der Speedwire-Port 9522 erscheint in der Ausgabe nur als Information.
+
+  Rückgabe:
+    Status, Ping_OK, Speedwire_Aktiv (immer true wenn Ping OK), Info
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 11 – Check-Powerline.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-Powerline
+  Zweck:       Prüft Fritz!DECT Powerline-Adapter auf Ping und HTTP-Erreichbarkeit.
+
+  Parameter:
+    $IP           IP des Powerline-Adapters
+    $FritzBoxIP   IP der Fritz!Box (Standard: 192.168.80.1)
+
+  Prüfablauf:
+    1. ICMP-Ping
+    2. TCP-Test Port 80 (Webinterface)
+
+  Warnlogik:   OK wenn Ping + HTTP. WARNUNG wenn Ping aber kein HTTP.
+
+  Rückgabe:
+    Status, Ping_OK, HTTP_Erreichbar, Info
+
+  Verwendet für: 3 Powerline-Adapter (192.168.80.75, .77, .138)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 12 – Check-Docker.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-Docker
+  Zweck:       Prüft den Docker-Container "Männerballet" auf dem DS1525+.
+               Gibt Container-Status, Laufzeit und letzte Log-Zeilen zurück.
+
+  Parameter:
+    $IP        IP des NAS (Standard: 192.168.80.206)
+    $SSHPort   SSH-Port (Standard: 822)
+    $SSHUser   SSH-Benutzer (Standard: Armin)
+
+  Docker-Compose-Pfad:  /volume2/docker/maennerballet/docker-compose.yml
+
+  SSH-Befehle:
+    sudo docker compose -f <pfad> ps --format json   → Container-Status
+    sudo docker compose -f <pfad> logs --tail=5 app  → Letzte 5 Log-Zeilen
+
+  JSON-Parsing: Primär JSON-Format, Fallback auf Text-Parsing wenn kein JSON.
+
+  Ausgewertete Felder:
+    Name, State (running/exited/restarting), RunningFor, Publishers (Ports)
+
+  Statuslogik:
+    OK       Container running
+    WARNUNG  Container restarting
+    FEHLER   Container exited oder SSH fehlgeschlagen
+
+  Rückgabe:
+    Status, Container_Name, Container_Status, Container_Uptime,
+    Port_Mapping, Letzte_Logs, Info
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 13 – Check-ExternalLogins.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-ExternalLogins
+  Zweck:       Sicherheitscheck – analysiert Anmeldeprotokolle auf verdächtige
+               Zugriffsversuche der letzten 24 Stunden.
+
+  Parameter:
+    $FritzBoxIP    IP der Fritz!Box
+    $NAS1_IP / NAS1_SSHPort   DS1525+
+    $NAS2_IP / NAS2_SSHPort   DS723+
+    $SSHUser       SSH-Benutzer für NAS-Zugriff
+
+  Ausgewertete Quellen:
+    1. Fritz!Box:  Ping-Check (VPN-Log nur über UI zugänglich)
+    2. DS1525+:    /var/log/auth.log (SSH-Logins, Fehlversuche)
+    3. DS723+:     /var/log/auth.log (SSH-Logins, Fehlversuche)
+    4. SASCHA_SERVER:  Ping + RDP-Port-Check
+
+  Auth-Log-Analyse sucht nach:
+    "Accepted"  → erfolgreicher SSH-Login (QuellIP extrahiert)
+    "Failed"    → fehlgeschlagener SSH-Login
+    "Invalid user" → Brute-Force-Versuch mit unbekanntem Benutzer
+
+  Warnlogik:   WARNUNG wenn mehr als 5 Fehlversuche in 24h
+
+  Rückgabe:
+    Status, Eintraege (Array), Verdaechtige (Anzahl Fehlversuche), Info
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 14 – Check-EmailDelivery.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Check-EmailDelivery
+  Zweck:       Vollständiger E-Mail-Lieferungstest:
+               TCP-Verbindung → SMTP-Authentifizierung → E-Mail versenden
+
+  Parameter:
+    $SmtpHost    SMTP-Server (exchange.ionos.eu)
+    $SmtpPort    SMTP-Port (587)
+    $Von         Absender-Adresse
+    $An          Empfänger-Adresse
+    $PassSecure  SMTP-Passwort als SecureString
+
+  Prüfstufen:
+    1. TCP-Test auf SMTP-Port 587
+    2. SMTP-Login mit Credentials
+    3. HTML-Test-E-Mail versenden
+
+  Gesendete E-Mail:
+    Betreff: "[Heimnetz Monitor] E-Mail Test <Datum> (ID: <TestID>)"
+    Body: HTML-formatiert mit Zeitstempel und Test-ID zur Verifikation
+
+  Technik:     System.Net.Mail.SmtpClient (TLS/STARTTLS auf Port 587)
+
+  Rückgabe:
+    Status, TCP_OK, Auth_OK, Gesendet_OK, Test_ID, Info
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 15 – New-HtmlReport.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    New-HtmlReport
+  Zweck:       Erstellt einen vollständigen HTML-Statusbericht aus den
+               gesammelten Check-Ergebnissen.
+
+  Ausgabe:     HTML-Datei in reports\ (Dateiname: Report_YYYYMMDD_HHmmss.html)
+  Design:      Dark-Mode GitHub-Stil (Hintergrund #0d1117, Akzent #58a6ff)
+
+  Enthält:
+    - Zusammenfassung (OK/WARNUNG/FEHLER Anzahl, Laufzeit)
+    - Tabelle mit allen Geräten (Status-Ampel, Info-Text)
+    - Kamera-Snapshots als Base64-eingebettete Bilder (wenn vorhanden)
+    - Zeitstempel der Erstellung
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 16 – Send-Alert.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Send-Alert, New-AlertBody
+  Zweck:       Sendet formatierte HTML-E-Mail-Alarme bei Problemen.
+               Anti-Spam-Logik verhindert E-Mail-Flut.
+
+  Alert-Typen:
+    Alarm         Ein oder mehr Geräte mit Status FEHLER
+    Warnung       Geräte mit WARNUNG oder FEHLER
+    Tagesbericht  Täglicher Vollstatus (08:00 Uhr)
+    Entwarnung    Problem behoben (nach vorherigem Alarm)
+
+  Anti-Spam:   Gleicher Alert-Typ wird innerhalb von 30 Minuten nur
+               einmal gesendet. Tracking in last_status.json.
+
+  Entwarnung:  Wird nur gesendet wenn vorher ein Alarm/Warnung aktiv war.
+
+  Technik:     System.Net.Mail.SmtpClient (SMTP über TLS/STARTTLS Port 587)
+               IONOS Exchange: exchange.ionos.eu:587
+
+  E-Mail-Body: HTML-formatiert, Dark-Mode, Tabelle mit Geräten, Status-Farben:
+    Grün (#3fb950):  OK
+    Gelb (#d29922):  WARNUNG
+    Rot  (#f85149):  FEHLER / ALARM
+
+
+────────────────────────────────────────────────────────────────────────────────
+  MODUL 17 – Push-GitCommit.ps1
+────────────────────────────────────────────────────────────────────────────────
+
+  Funktion:    Push-GitCommit
+  Zweck:       Erstellt nach jedem Monitor-Lauf automatisch einen Git-Commit
+               und pusht ihn zu GitHub.
+
+  Parameter:
+    $Beschreibung   Commit-Beschreibung (z.B. "monitoring: Check OK:17 WARN:0")
+
+  Ablauf:
+    1. Prüft ob .git-Verzeichnis existiert
+       → falls nicht: gh repo create + git init + initialer Push
+    2. git status --porcelain → Änderungen vorhanden?
+    3. Sicherheitscheck: credentials.json NIEMALS committen
+    4. git add . (gitignore schützt credentials.json)
+    5. Nochmal prüfen ob credentials.json im Staging
+    6. git commit -m "[Datum] Beschreibung"
+    7. git push origin main
+
+  Sicherheit:  Dreifacher Schutz gegen versehentliches Committen von Passwörtern:
+               .gitignore, Pre-Staging-Check, Post-Staging-Check
+
+
+================================================================================
+  TEIL C – VERBINDUNGS- UND ABFRAGETECHNIKEN
+================================================================================
+
+  Das System verwendet 9 verschiedene Verbindungstechniken:
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 1 – ICMP PING (Test-Connection)
+────────────────────────────────────────────────────────────────────────────────
+
+  PowerShell-Cmdlet:  Test-Connection
+  Protokoll:          ICMP (Internet Control Message Protocol)
+  Funktion:           Sendet einen Echo-Request und wartet auf Echo-Reply
+
+  Verwendung im Code:
+    Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 2 -ErrorAction Stop
+
+  Vorteile:
+    - Einfachster und schnellster Erreichbarkeitstest
+    - Misst Latenz (Round-Trip-Time)
+    - Kein offener Port nötig
+
+  Nachteile:
+    - ICMP kann durch Firewalls blockiert sein
+    - Kein Protokolltest (nur IP-Schicht)
+
+  Gibt zurück:        $ping.Latency (in Millisekunden)
+
+  Genutzt von:        Alle 17 Module als Basisfunktion
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 2 – ASYNCHRONER TCP-PORT-TEST
+────────────────────────────────────────────────────────────────────────────────
+
+  .NET-Klasse:        System.Net.Sockets.TcpClient
+  Protokoll:          TCP
+
+  Verwendung im Code:
+    $client     = New-Object System.Net.Sockets.TcpClient
+    $verbindung = $client.BeginConnect($IP, $Port, $null, $null)
+    $erfolg     = $verbindung.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+    if ($erfolg -and $client.Connected) { ... }
+    $client.Close(); $client.Dispose()
+
+  Warum asynchron?
+    Der synchrone Connect() blockiert den PowerShell-Thread für die gesamte
+    Timeout-Dauer. Mit BeginConnect + WaitOne wird nur so lange gewartet
+    wie angegeben, dann wird abgebrochen – ohne den Thread zu blockieren.
+
+  Genutzt für:
+    Port 80 (HTTP), 443 (HTTPS), 554 (RTSP), 587 (SMTP), 822 (SSH Synology),
+    3389 (RDP), 8463 (MailStore API), 9000 (Reolink Eingang HTTP)
+
+  Genutzt von:        Check-Port, Check-Camera, Check-Powerline, Check-SMA,
+                      Check-MailstoreAPI, Check-ExternalLogins, Check-EmailDelivery
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 3 – SSH (Secure Shell mit Key-Authentifizierung)
+────────────────────────────────────────────────────────────────────────────────
+
+  Programm:           ssh.exe (Windows OpenSSH, integriert in Windows 10/11)
+  Protokoll:          SSH (Secure Shell) – TCP Port 22 (Pi) oder 822 (Synology)
+  Authentifizierung:  Public-Key (kein Passwort im Code!)
+
+  SSH-Parameter:
+    BatchMode=yes           Kein interaktiver Dialog
+    ConnectTimeout=5        Verbindungsaufbau-Timeout in Sekunden
+    StrictHostKeyChecking=no  Automatische Host-Key-Akzeptanz (Heimnetz)
+    -p <Port>               Port-Angabe
+
+  Timeout-Handling:   ssh.exe wird in Start-Job ausgeführt.
+                      Wait-Job -Timeout 10/12 → bei Überschreitung: Stop-Job
+
+  Code-Muster:
+    $job = Start-Job -ScriptBlock {
+        param($a)
+        $out  = & ssh.exe @a 2>&1
+        $code = $LASTEXITCODE
+        [PSCustomObject]@{ Output = $out; ExitCode = $code }
+    } -ArgumentList (,$sshArgs)
+    $fertig = Wait-Job $job -Timeout 10
+
+  Ausgeführte Linux-Befehle:
+    Raspberry Pi:   uptime && df -h / && free -m
+    Synology NAS:   df -h | grep '/volume'; cat /proc/mdstat; free -m; uptime
+    NAS Auth-Log:   sudo grep -E 'Accepted|Failed|Invalid' /var/log/auth.log
+    Docker:         sudo docker compose ps --format json
+                    sudo docker compose logs --tail=5 app
+
+  Voraussetzung:  SSH-Key des Windows-Rechners muss auf Zielgerät
+                  in ~/.ssh/authorized_keys eingetragen sein.
+
+  Genutzt von:    Check-SSH, Check-SynologyAPI, Check-Docker, Check-ExternalLogins
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 4 – HTTP REST-API (GET, kein Auth)
+────────────────────────────────────────────────────────────────────────────────
+
+  PowerShell-Cmdlet:  Invoke-RestMethod
+  Protokoll:          HTTP, GET-Methode
+  Authentifizierung:  Keine (öffentlicher Endpunkt)
+
+  Verwendung:
+    Invoke-RestMethod -Uri "http://<IP>/pfad" -Method Get -TimeoutSec 5
+
+  Genutzt für:
+    ntopng:   http://192.168.80.20:3000/lua/rest/v2/get/ntopng/info.lua
+    ELWA-E:   http://192.168.80.122/data.jsn
+
+  Besonderheit ELWA-E:
+    Antwort ist ein JSON mit Rohwerten:
+    temp1 = Wassertemperatur in 1/10 °C → muss durch 10 geteilt werden!
+
+  Genutzt von:    Check-NtopngAPI, Check-ELWA
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 5 – HTTP REST-API (POST JSON mit Session-Auth)
+────────────────────────────────────────────────────────────────────────────────
+
+  PowerShell-Cmdlet:  Invoke-RestMethod
+  Protokoll:          HTTP, POST-Methode mit JSON-Body
+  Authentifizierung:  Session-basiert (Passwort → SID → Header)
+
+  Pi-hole v6 Authentifizierungsablauf:
+    1. POST http://<IP>/api/auth
+       Body: {"password": "passwort"}
+       Antwort: {"session": {"sid": "abc123..."}}
+
+    2. GET http://<IP>/api/stats/summary
+       Header: "sid: abc123..."
+       Antwort: JSON mit Statistiken
+
+    3. DELETE http://<IP>/api/auth
+       Header: "sid: abc123..."
+       → Session beenden (sauberes Logout)
+
+  Code-Muster:
+    $authBody = @{ password = $passwort } | ConvertTo-Json -Compress
+    $authResp = Invoke-RestMethod -Uri "http://$IP/api/auth" -Method Post
+                  -Body $authBody -ContentType "application/json"
+    $sid = $authResp.session.sid
+    $headers = @{ sid = $sid }
+    $summary = Invoke-RestMethod -Uri "http://$IP/api/stats/summary"
+                  -Method Get -Headers $headers
+
+  Genutzt von:    Check-PiholeAPI
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 6 – HTTPS REST-API (POST JSON mit Token-Auth)
+────────────────────────────────────────────────────────────────────────────────
+
+  PowerShell-Cmdlet:  Invoke-RestMethod
+  Protokoll:          HTTPS (selbstsigniertes Zertifikat → SkipCertificateCheck)
+  Authentifizierung:  Token-basiert (Login-Command → Token → URL-Parameter)
+
+  Reolink Kamera API-Ablauf:
+    1. POST https://<IP>/api.cgi  (oder /cgi-bin/api.cgi)
+       Body: [{"cmd":"Login","action":0,"param":{"User":{"userName":"admin","password":"pw"}}}]
+       Antwort: [{"code":0,"value":{"Token":{"name":"abc123"}}}]
+
+    2. POST https://<IP>/api.cgi?token=abc123
+       Body: [{"cmd":"GetDevInfo","action":0,"param":{"channel":0}}]
+       Antwort: Geräte-Informationen (Modell, Firmware)
+
+    3. GET https://<IP>/cgi-bin/api.cgi?cmd=Snap&channel=0&token=abc123
+       → JPEG-Snapshot (als Binärdaten)
+
+    4. POST https://<IP>/api.cgi?token=abc123
+       Body: [{"cmd":"Logout","action":0,"param":{}}]
+       → Session beenden
+
+  Lockout-Schutz:  3 Fehlversuche → 60 Minuten Sperrung (logs/camera_lockout.json)
+  API-Endpunkt:    Automatische Suche zwischen /api.cgi und /cgi-bin/api.cgi
+
+  Genutzt von:    Check-Camera (nur Reolink-Kameras)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 7 – HTTPS REST-API (POST Form-Encoded mit Basic Auth)
+────────────────────────────────────────────────────────────────────────────────
+
+  PowerShell-Cmdlet:  Invoke-RestMethod
+  Protokoll:          HTTPS (selbstsigniertes Zertifikat)
+  Authentifizierung:  HTTP Basic Auth (Authorization: Basic Base64(user:pass))
+  Body-Format:        application/x-www-form-urlencoded
+
+  MailStore Administration API:
+
+  Auth-Header aufbauen:
+    $authB64 = [Convert]::ToBase64String(
+                  [Text.Encoding]::ASCII.GetBytes("admin:passwort"))
+    $headers = @{ Authorization = "Basic $authB64" }
+
+  API-Aufruf:
+    $params = @{
+        Uri                  = "https://192.168.80.120:8463/api/invoke/GetJobResults"
+        Method               = "POST"
+        Headers              = $headers
+        SkipCertificateCheck = $true
+        ContentType          = "application/x-www-form-urlencoded"
+        Body                 = "fromIncluding=2026-04-27T14:00:00&toExcluding=2026-04-29T00:00:00&timeZoneId=W.%20Europe%20Standard%20Time"
+    }
+    $raw = Invoke-RestMethod @params
+
+  BOM-Behandlung (PFLICHT bei MailStore):
+    MailStore fügt UTF-8 BOM (0xFEFF) an den Anfang jeder Antwort.
+    Invoke-RestMethod erkennt das und gibt einen String zurück statt ein Objekt.
+    Lösung: $raw.TrimStart([char]0xFEFF) | ConvertFrom-Json
+
+  URL-Encoding für Parameter:
+    [Uri]::EscapeDataString($wert)
+    Beispiel: "W. Europe Standard Time" → "W.%20Europe%20Standard%20Time"
+    Wichtig: Datumsstring vorher als Variable aufbauen, nicht inline!
+
+  Verwendete Endpunkte:
+    /api/invoke/GetServerInfo    → Basis-Info (kein Body)
+    /api/invoke/GetJobs          → Job-Liste mit Namen
+    /api/invoke/GetJobResults    → Job-Ergebnisse (3 Pflichtparameter)
+    /api/get-metadata            → API-Dokumentation (kein Body)
+
+  Genutzt von:    Check-MailstoreAPI
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 8 – SMTP E-MAIL VERSAND
+────────────────────────────────────────────────────────────────────────────────
+
+  .NET-Klasse:        System.Net.Mail.SmtpClient
+  Protokoll:          SMTP mit STARTTLS (TLS-Verschlüsselung auf Port 587)
+  Server:             exchange.ionos.eu:587
+
+  Code-Muster:
+    $smtp                = New-Object System.Net.Mail.SmtpClient($host, $port)
+    $smtp.EnableSsl      = $true
+    $smtp.Credentials    = New-Object System.Net.NetworkCredential($von, $pass)
+    $smtp.Timeout        = 15000
+    $mail                = New-Object System.Net.Mail.MailMessage
+    $mail.From           = $von
+    $mail.To.Add($an)
+    $mail.Subject        = $betreff
+    $mail.IsBodyHtml     = $true
+    $smtp.Send($mail)
+
+  Genutzt für:
+    Send-Alert:         Alarm-/Warn-/Tagesberichte per E-Mail
+    Check-EmailDelivery: Test-E-Mail für Lieferungsverifikation
+
+  Genutzt von:    Send-Alert, Check-EmailDelivery
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TECHNIK 9 – POWERSHELL REMOTING (WinRM) – OPTIONAL
+────────────────────────────────────────────────────────────────────────────────
+
+  Cmdlets:            New-PSSession, Invoke-Command, Remove-PSSession
+  Protokoll:          WS-Management (WinRM) über HTTP/HTTPS
+  Port:               5985 (HTTP) oder 5986 (HTTPS)
+
+  Verwendung im Code:
+    $sessionOpt = New-PSSessionOption -OpenTimeout 8000 -OperationTimeout 20000
+    $session    = New-PSSession -ComputerName $IP -Credential $cred
+    $ergebnis   = Invoke-Command -Session $session -ScriptBlock { Get-Service ... }
+    Remove-PSSession $session
+
+  Nur für: Check-MailstoreAPI (Stufe 2 – Windows-Dienststatus)
+  Status:  Auf Mailstore-VM 192.168.80.120 derzeit nicht verfügbar
+           (WinRM nicht aktiviert / Zugriff verweigert)
+  Fallback: Der Check läuft über Stufe 3 (HTTP API) trotzdem erfolgreich.
+
+  Voraussetzung: Enable-PSRemoting auf Zielcomputer (als Admin ausführen)
+
+
+================================================================================
+  TEIL D – GLOSSAR ALLER BEFEHLE MIT BESCHREIBUNG
+================================================================================
+
+  Die folgende Liste enthält alle PowerShell-Cmdlets, .NET-Klassen und
+  Systembefehle die im Projekt verwendet werden, alphabetisch sortiert.
+
+────────────────────────────────────────────────────────────────────────────────
+  A
+────────────────────────────────────────────────────────────────────────────────
+
+  Add-Content
+    Hängt Text an eine bestehende Datei an (ohne sie zu überschreiben).
+    Verwendet für: Logdateien (Monitor_YYYYMMDD.log)
+    Syntax: "Text" | Add-Content $pfad -Encoding UTF8
+
+  Add-Member
+    Fügt einem PSCustomObject nachträglich eine neue Eigenschaft hinzu.
+    Verwendet für: Dynamisches Hinzufügen von IP-Einträgen zum Lockout-JSON
+    Syntax: $obj | Add-Member -NotePropertyName "name" -NotePropertyValue $wert -Force
+
+  AsyncWaitHandle.WaitOne($ms, $false)
+    .NET-Methode die auf den Abschluss einer asynchronen Operation wartet.
+    Wird nach BeginConnect() aufgerufen. Gibt true zurück wenn die Verbindung
+    innerhalb von $ms Millisekunden aufgebaut wurde.
+
+────────────────────────────────────────────────────────────────────────────────
+  B
+────────────────────────────────────────────────────────────────────────────────
+
+  BeginConnect($IP, $Port, $null, $null)
+    .NET-Methode der TcpClient-Klasse.
+    Startet eine asynchrone TCP-Verbindung (nicht-blockierend).
+    Gibt ein IAsyncResult-Objekt zurück das mit WaitOne überwacht wird.
+
+────────────────────────────────────────────────────────────────────────────────
+  C
+────────────────────────────────────────────────────────────────────────────────
+
+  [Convert]::ToBase64String()
+    Konvertiert ein Byte-Array in einen Base64-kodierten String.
+    Verwendet für: HTTP Basic Auth Header-Erstellung
+    Syntax: [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("user:pass"))
+
+  ConvertFrom-Json
+    Wandelt einen JSON-String in ein PowerShell-Objekt um.
+    Wichtig: Scheitert wenn der String mit einem BOM-Zeichen beginnt.
+    Lösung: $string.TrimStart([char]0xFEFF) | ConvertFrom-Json
+
+  ConvertTo-Json
+    Wandelt ein PowerShell-Objekt in einen JSON-String um.
+    Parameter -Depth legt fest wie tief verschachtelte Objekte serialisiert werden.
+    -Compress entfernt Leerzeichen/Zeilenumbrüche (kompakte Ausgabe).
+
+  ConvertTo-SecureString
+    Konvertiert einen verschlüsselten Windows-String zurück in einen SecureString.
+    Verwendet für: Laden gespeicherter Passwörter aus credentials.json
+
+────────────────────────────────────────────────────────────────────────────────
+  D
+────────────────────────────────────────────────────────────────────────────────
+
+  [DateTime]::Parse()
+    Parst einen Datum-String in ein .NET-DateTime-Objekt.
+    Verwendet für: Auth-Log-Zeitstempel, Anti-Spam-Zeitvergleich
+
+  [DateTime]::ParseExact()
+    Parst einen Datum-String mit genau angegebenem Format.
+    Verwendet für: Auth-Log-Einträge (Format: "MMM d HH:mm:ss yyyy")
+
+────────────────────────────────────────────────────────────────────────────────
+  F
+────────────────────────────────────────────────────────────────────────────────
+
+  ForEach-Object
+    Iteriert über eine Pipeline und führt für jedes Element den Script-Block aus.
+    Kurzform: { $_ }   ($_ = aktuelles Element)
+
+────────────────────────────────────────────────────────────────────────────────
+  G
+────────────────────────────────────────────────────────────────────────────────
+
+  Get-Content
+    Liest den Inhalt einer Datei.
+    Mit -Raw: Gibt den gesamten Inhalt als einzelnen String zurück (kein Array).
+    Mit -Encoding UTF8: UTF-8-Kodierung beachten.
+
+  Get-Credential
+    Öffnet einen sicheren Passwort-Eingabedialog.
+    Gibt PSCredential-Objekt zurück (Benutzername + SecureString).
+    Verwendet für: Interaktive Passwort-Eingabe beim Testen.
+
+  Get-Date
+    Gibt aktuelles Datum und Uhrzeit zurück.
+    .AddHours(-24)  → 24 Stunden in der Vergangenheit
+    .AddDays(1)     → 1 Tag in der Zukunft
+    .ToString("yyyy-MM-ddTHH:mm:ss")  → MailStore-Datumsformat
+
+  Get-Service
+    Gibt Windows-Dienste zurück.
+    Verwendet in Invoke-Command (Remoting) um MailStore-Dienst zu prüfen.
+    Filterung: Where-Object { $_.DisplayName -like "*MailStore*" }
+
+────────────────────────────────────────────────────────────────────────────────
+  I
+────────────────────────────────────────────────────────────────────────────────
+
+  [int]::TryParse($string, [ref]$variable)
+    Versucht einen String in eine Ganzzahl zu konvertieren.
+    Gibt true/false zurück, speichert Ergebnis in $variable.
+    Sicher – wirft keine Ausnahme bei ungültigem Format.
+
+  Invoke-Command
+    Führt Befehle auf einem Remote-Computer aus (PowerShell Remoting).
+    Erfordert eine aktive PSSession.
+    Syntax: Invoke-Command -Session $session -ScriptBlock { ... }
+
+  Invoke-RestMethod
+    Sendet HTTP-Anfragen und konvertiert JSON-Antworten automatisch.
+    Parameter:
+      -Uri                   URL des Endpunkts
+      -Method                GET / POST / DELETE
+      -Body                  Anfrage-Daten (String oder Byte-Array)
+      -ContentType           MIME-Typ des Body (application/json, application/x-www-form-urlencoded)
+      -Headers               Hashtable mit HTTP-Headern (Authorization, sid, ...)
+      -Credential            PSCredential für HTTP Basic Auth
+      -SkipCertificateCheck  Selbstsignierte Zertifikate akzeptieren
+      -TimeoutSec            Timeout in Sekunden
+
+  Invoke-WebRequest
+    Ähnlich wie Invoke-RestMethod, gibt aber den rohen HTTP-Response zurück.
+    Verwendet für: Kamera-Snapshot-Download (Binärdaten, kein JSON)
+    $r.Content     → Byte-Array des Response-Body
+    $r.StatusCode  → HTTP-Statuscode (200 = OK)
+
+────────────────────────────────────────────────────────────────────────────────
+  M
+────────────────────────────────────────────────────────────────────────────────
+
+  [Marshal]::SecureStringToBSTR($secureString)
+    Konvertiert einen SecureString in einen BSTR-Zeiger (Binary String).
+    Zwischenschritt um an das Klartext-Passwort zu gelangen.
+
+  [Marshal]::PtrToStringAuto($ptr)
+    Liest den Klartext-String aus einem BSTR-Zeiger.
+    Immer gefolgt von ZeroFreeBSTR um Speicher zu löschen!
+
+  [Marshal]::ZeroFreeBSTR($ptr)
+    Löscht den BSTR-Speicher (Sicherheit – Passwort im RAM überschreiben).
+    Muss immer nach PtrToStringAuto aufgerufen werden.
+
+  [Math]::Round($wert, $stellen)
+    Rundet eine Dezimalzahl auf die angegebene Anzahl Nachkommastellen.
+
+────────────────────────────────────────────────────────────────────────────────
+  N
+────────────────────────────────────────────────────────────────────────────────
+
+  New-Object System.Net.Mail.MailMessage
+    Erstellt eine neue E-Mail-Nachricht.
+    Eigenschaften: From, To, Subject, Body, IsBodyHtml, SubjectEncoding
+
+  New-Object System.Net.Mail.SmtpClient($host, $port)
+    Erstellt einen SMTP-Client für E-Mail-Versand.
+    Eigenschaften: EnableSsl, Credentials, Timeout, DeliveryMethod
+
+  New-Object System.Net.NetworkCredential($user, $pass)
+    Erstellt ein Netzwerk-Credential-Objekt aus Benutzername und Passwort.
+    Verwendet für: SMTP-Authentifizierung
+
+  New-Object System.Net.Sockets.TcpClient
+    Erstellt einen TCP-Client für Port-Tests.
+    Methoden: BeginConnect(), EndConnect(), Close(), Dispose()
+
+  New-PSSession
+    Erstellt eine persistente PowerShell-Remoting-Verbindung.
+    Parameter: -ComputerName, -Credential, -SessionOption
+    Muss mit Remove-PSSession beendet werden.
+
+  New-PSSessionOption
+    Erstellt Optionsobjekt für PSSession (Timeouts etc.)
+    -OpenTimeout      Millisekunden für Verbindungsaufbau
+    -OperationTimeout Millisekunden für Einzeloperationen
+
+────────────────────────────────────────────────────────────────────────────────
+  O
+────────────────────────────────────────────────────────────────────────────────
+
+  Out-Null
+    Verwirft die Ausgabe (unterdrückt Konsolenausgabe).
+    Verwendet wenn Rückgabewert nicht benötigt wird.
+
+────────────────────────────────────────────────────────────────────────────────
+  P
+────────────────────────────────────────────────────────────────────────────────
+
+  Pop-Location
+    Wechselt zum vorher mit Push-Location gespeicherten Verzeichnis zurück.
+
+  [PSCustomObject]@{ ... }
+    Erstellt ein benutzerdefiniertes PowerShell-Objekt mit benannten Feldern.
+    Alle Check-Module geben PSCustomObject zurück.
+
+  Push-Location $pfad
+    Speichert aktuelles Verzeichnis und wechselt zu $pfad.
+    Wird vor git-Befehlen verwendet (Projektverzeichnis).
+
+────────────────────────────────────────────────────────────────────────────────
+  R
+────────────────────────────────────────────────────────────────────────────────
+
+  Receive-Job $job
+    Empfängt die Ausgabe eines abgeschlossenen Hintergrundjobs.
+    Muss nach Wait-Job aufgerufen werden.
+
+  Remove-Job $job -Force
+    Entfernt einen Hintergrundjob aus der Job-Liste.
+    -Force entfernt auch laufende Jobs.
+
+  Remove-PSSession $session
+    Beendet und entfernt eine PowerShell-Remoting-Verbindung.
+
+────────────────────────────────────────────────────────────────────────────────
+  S
+────────────────────────────────────────────────────────────────────────────────
+
+  Select-Object
+    Wählt bestimmte Eigenschaften aus oder begrenzt die Anzahl der Ergebnisse.
+    -ExpandProperty  Gibt Inhalt einer Eigenschaft direkt zurück (kein Wrapper)
+    -First 1         Erstes Element
+    -Last 5          Letzte 5 Elemente
+
+  Set-Content
+    Schreibt Inhalt in eine Datei (überschreibt).
+    Verwendet für: Lockout-JSON, last_status.json speichern
+
+  [Stopwatch]::StartNew()
+    Startet eine Stoppuhr für Zeitmessungen.
+    .ElapsedMilliseconds  → vergangene Zeit in Millisekunden
+    .Stop()               → Stoppuhr anhalten
+
+  Stop-Job $job
+    Bricht einen laufenden Hintergrundjob ab.
+    Wird verwendet wenn Wait-Job den Timeout erreicht hat.
+
+  Start-Job
+    Startet einen PowerShell-Befehl als Hintergrundjob.
+    Ermöglicht echte Timeouts für externe Prozesse (ssh.exe, ffprobe.exe).
+    -ScriptBlock     Der auszuführende Code-Block
+    -ArgumentList    Parameter die an den ScriptBlock übergeben werden
+
+  [System.Diagnostics.Stopwatch]
+    .NET-Klasse für präzise Zeitmessungen.
+    Wird in mehreren Modulen für Antwortzeiterfassung verwendet.
+
+────────────────────────────────────────────────────────────────────────────────
+  T
+────────────────────────────────────────────────────────────────────────────────
+
+  Test-Connection
+    ICMP-Ping an ein Zielgerät.
+    -ComputerName    Ziel-IP oder Hostname
+    -Count 1         Nur ein Paket senden
+    -TimeoutSeconds  Wartezeit
+    -ErrorAction Stop  Wirft Ausnahme wenn nicht erreichbar
+
+  Test-Path
+    Prüft ob Datei, Ordner oder Registry-Pfad existiert.
+    Gibt $true oder $false zurück.
+
+  [Text.Encoding]::ASCII.GetBytes($string)
+    Konvertiert einen String in ein ASCII-Byte-Array.
+    Verwendet für: Base64-Kodierung von "user:passwort" für Basic Auth.
+
+  [Text.Encoding]::UTF8
+    UTF-8-Zeichenkodierung.
+    Verwendet für E-Mail-Kodierung: $mail.SubjectEncoding, $mail.BodyEncoding
+
+  TrimStart([char]0xFEFF)
+    Entfernt das UTF-8 BOM-Zeichen (Byte Order Mark, Unicode 0xFEFF) vom
+    Anfang eines Strings. Notwendig vor ConvertFrom-Json bei MailStore-Antworten.
+
+────────────────────────────────────────────────────────────────────────────────
+  U
+────────────────────────────────────────────────────────────────────────────────
+
+  [Uri]::EscapeDataString($string)
+    URL-kodiert einen String (alle Sonderzeichen werden als %XX kodiert).
+    Beispiel: "W. Europe Standard Time" → "W.%20Europe%20Standard%20Time"
+    Wichtig: Leerzeichen → %20, / → %2F, : → %3A, + → %2B
+    Verwendet für: MailStore API Parameter (fromIncluding, timeZoneId)
+
+────────────────────────────────────────────────────────────────────────────────
+  W
+────────────────────────────────────────────────────────────────────────────────
+
+  Wait-Job $job -Timeout $sekunden
+    Wartet auf den Abschluss eines Hintergrundjobs.
+    Gibt $null zurück wenn Timeout überschritten (Job läuft noch).
+    Gibt Job-Objekt zurück wenn rechtzeitig fertig.
+
+  Where-Object
+    Filtert eine Kollektion von Objekten nach einer Bedingung.
+    Kurzform: { $_.Eigenschaft -eq "Wert" }
+    Reguläre Ausdrücke: -match "Muster"
+
+  Write-Host
+    Schreibt Text direkt auf die Konsole.
+    -ForegroundColor  Textfarbe (Green, Yellow, Red, Cyan, Gray, ...)
+    -NoNewline        Kein Zeilenumbruch am Ende
+
+
+================================================================================
+  BEKANNTE PROBLEME UND OFFENE PUNKTE
+================================================================================
+
+  1. Synology DS1525+ – Speicherplatz kritisch
+     /volume1: 93% belegt, /volume4: 96% belegt
+     Aktion: Daten verschieben oder Volumes erweitern
+
+  2. Mailstore – VerifyStores fehlgeschlagen (27.04.2026)
+     Job "Datenintegrität prüfen" lief 2h17min und schlug fehl.
+     Prüfen: MailStore Management Client → Verwaltung → Speicherorte → Protokoll
+
+  3. Reolink-Kameras – RTSP Port 554 geschlossen
+     5 von 6 Reolink-Kameras zeigen RTSP geschlossen.
+     Möglicherweise in Firmware-Einstellungen deaktiviert.
+
+  4. Mailstore – PowerShell Remoting nicht verfügbar
+     WinRM auf VM 192.168.80.120 nicht aktiviert (Zugriff verweigert).
+     Stufe 2 (Dienst-Check) wird übersprungen – kein Problem da Stufe 3 (API) funktioniert.
+
+  5. INSTAR Kamera 2 – IP nicht eingetragen
+     Gerät in config.json deaktiviert bis IP bekannt.
+
+  6. MailStore bekannte Job-Fehler (dauerhaft):
+     andrearosbach27@gmail.com  → Gmail OAuth2 nicht unterstützt
+     Andrea_IMAP_IONOS          → Unverschlüsselte Verbindung (Warnung)
+     Armin_FEP_Exchange         → Unverschlüsselte Verbindung (Warnung)
+
+
+================================================================================
+  KONFIGURATION – ZENTRALE EINSTELLUNGEN
+================================================================================
+
+  SMTP:
+    Server:   exchange.ionos.eu
+    Port:     587 (STARTTLS)
+    Von/An:   rosbach@fe-partners.com
+
+  Check-Intervall:
+    Automatisch alle 15 Minuten (Windows Task Scheduler)
+    Tagesbericht täglich um 08:00 Uhr
+
+  Alarm-Anti-Spam:
+    Gleicher Alarm-Typ max. alle 30 Minuten
+
+  Ping-Timeout:   1000ms
+  Port-Timeout:   2000ms
+
+  MailStore API:
+    Port:       8463
+    Auth:       HTTP Basic (admin / MailStore-Passwort)
+    Protokoll:  HTTPS (selbstsigniert)
+    Datumsformat: yyyy-MM-ddTHH:mm:ss
+    Zeitzone:   W. Europe Standard Time
+
+
+================================================================================
+  GIT-REPOSITORY
+================================================================================
+
+  URL:    https://github.com/arovillmar/netzwerk-monitoring (privat)
+  Branch: main
+
+  Geschützte Dateien (.gitignore):
+    credentials.json    Passwörter – NIEMALS committen!
+    *.log               Logdateien
+    reports\*.html      HTML-Berichte
+
+  Automatische Commits:
+    Nach jedem Monitor-Lauf wird Push-GitCommit.ps1 aufgerufen.
+    Commit-Format: "[YYYY-MM-DD HH:mm] monitoring: Check OK:X WARN:Y ERR:Z"
+
+
+================================================================================
+  ERSTELLT: 29.04.2026 | Heimnetz-Monitoring Projekt | Armin Rosbach-Villmar
+  Version 2.0 nach MailStore HTTP-API Integration
+================================================================================
