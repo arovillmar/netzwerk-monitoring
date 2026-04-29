@@ -100,6 +100,12 @@ foreach ($G in $GeraeteListe) {
                     if ($nasResult.Status -eq "WARNUNG") { $checkStatus = "WARNUNG" }
                     $checkInfo = "SSH/:$($G.ssh_port) | $($nasResult.Info)"
                 }
+                if ($G.docker -eq $true -and $checkStatus -ne "FEHLER") {
+                    $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user
+                    if ($dockerResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
+                    $checkInfo += " | Docker: $($dockerResult.Container_Name) ($($dockerResult.Container_Status))"
+                    if ($details) { Add-Member -InputObject $details -MemberType NoteProperty -Name "Docker" -Value $dockerResult -Force }
+                }
             }
             "windows_host" {
                 $rdpResult = Check-Port -IP $G.ip -Port 3389 -TimeoutMs $Config.einstellungen.port_timeout_ms
@@ -179,6 +185,11 @@ foreach ($G in $GeraeteListe) {
         Zeitstempel = $zeitNow
     }
 }
+
+# ── Externe Logins ───────────────────────────────────────────────────────────
+Write-Host "  Pruefe externe Zugriffe..." -ForegroundColor Gray
+$LoginResult = $null
+try { $LoginResult = Check-ExternalLogins } catch {}
 
 $AnzahlOK     = ($AlleErgebnisse | Where-Object { $_.CheckStatus -eq "OK"      }).Count
 $AnzahlWarn   = ($AlleErgebnisse | Where-Object { $_.CheckStatus -eq "WARNUNG" }).Count
@@ -260,6 +271,29 @@ foreach ($e in $AlleErgebnisse) {
 "@
 }
 
+# Login-Sektion aufbauen
+$loginSektionHtml = ""
+if ($LoginResult) {
+    $loginStatusFarbe = if ($LoginResult.Warnung) { "#f85149" } else { "#3fb950" }
+    $loginZeilenHtml  = ""
+    foreach ($eintrag in $LoginResult.Eintraege) {
+        $eFarbe = switch -Regex ($eintrag.Ergebnis) {
+            "Fehlversuch" { "#f85149" }
+            "Erfolg"      { "#3fb950" }
+            default       { "#8b949e" }
+        }
+        $loginZeilenHtml += "<tr><td style='padding:5px 8px;font-size:0.82em;color:#8b949e;border-bottom:1px solid #21262d;'>$($eintrag.Zeitstempel)</td><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($eintrag.QuellIP)</td><td style='padding:5px 8px;font-size:0.82em;border-bottom:1px solid #21262d;'>$($eintrag.Zielgeraet)</td><td style='padding:5px 8px;font-size:0.82em;color:$eFarbe;border-bottom:1px solid #21262d;'>$($eintrag.Ergebnis)</td></tr>"
+    }
+    $loginSektionHtml = @"
+    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>Externe Zugriffe – Letzte 24h</h3>
+    <p style='color:$loginStatusFarbe;font-size:0.88em;margin-bottom:8px;'>$($LoginResult.Info)</p>
+    <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;font-size:0.85em;'>
+      <thead><tr style='background:#21262d;'><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zeit</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Von IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zielgeraet</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Ergebnis</th></tr></thead>
+      <tbody>$loginZeilenHtml</tbody>
+    </table>
+"@
+}
+
 $body = @"
 <!DOCTYPE html>
 <html>
@@ -304,6 +338,7 @@ $body = @"
     </table>
 
     $snapshotHtml
+    $loginSektionHtml
     <p style='color:#8b949e;font-size:0.8em;margin-top:16px;'>
       Heimnetz Monitor v2.0 | $zeitstempel<br>
       Ping-Bewertung: <span style='color:#3fb950;'>LAN &le;2ms / gut &le;10ms</span> &nbsp;
