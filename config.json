@@ -330,20 +330,21 @@
     {
       "id": 18,
       "name": "INSTAR Kamera 2",
-      "ip": "SPÄTER_NACHTRAGEN",
+      "ip": "192.168.80.50",
       "typ": "kamera_instar",
-      "aktiv": false,
+      "aktiv": true,
       "cam_user": "admin",
       "rtsp_port": 554,
-      "http_port": 8080,
-      "rtsp_url": "rtsp://SPÄTER_NACHTRAGEN:554/11",
+      "http_port": 8011,
+      "https_port": 4430,
+      "rtsp_url": "rtsp://192.168.80.50:554/11",
       "checks": [
         "ping",
         "rtsp_554",
-        "http_8080",
+        "http_8011",
         "stream_check"
       ],
-      "info": "INSTAR Kamera 2. IP noch nicht bekannt – deaktiviert bis IP eingetragen."
+      "info": "INSTAR Kamera 2. HTTP:8011, HTTPS:4430, RTSP:554+1554."
     }
   ]
 }

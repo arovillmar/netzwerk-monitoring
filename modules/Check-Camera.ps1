@@ -174,8 +174,8 @@ function Check-Camera {
         $authHdr = @{ Authorization = "Basic $b64Auth" }
 
         $instarUrls = @(
-            "http://${IP}:${HttpPort}/tmpfs/snap.jpg",
             "http://${IP}:${HttpPort}/snap.cgi",
+            "http://${IP}:${HttpPort}/tmpfs/snap.jpg",
             "http://${IP}:${HttpPort}/cgi-bin/snapshot.cgi"
         )
 
@@ -228,7 +228,6 @@ function Check-Camera {
     # OK: HTTP offen (+ optional RTSP)
     $gesamtStatus = if (-not $pingOK)                        { "FEHLER"  }
                     elseif (-not $httpOK -and -not $rtspOK)  { "FEHLER"  }
-                    elseif ($httpOK -and -not $rtspOK)       { "WARNUNG" }
                     else                                      { "OK"      }
 
     $infoTeile = @(

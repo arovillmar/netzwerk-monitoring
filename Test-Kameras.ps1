@@ -161,9 +161,9 @@ foreach ($K in $Kameras) {
         $authHdr = @{ Authorization = "Basic $b64Auth" }
 
         $instarUrls = @(
+            "http://$($K.ip):$httpPort/snap.cgi",
             "http://$($K.ip):$httpPort/tmpfs/snap.jpg",
-            "http://$($K.ip):$httpPort/cgi-bin/hi3510/snap.cgi?&-getstream",
-            "http://$($K.ip):$httpPort/snap.cgi"
+            "http://$($K.ip):$httpPort/cgi-bin/hi3510/snap.cgi?&-getstream"
         )
         # Basic Auth Versuch
         foreach ($url in $instarUrls) {
@@ -188,7 +188,6 @@ foreach ($K in $Kameras) {
             $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
             if ($curlExe) {
                 $tmpFile = [System.IO.Path]::GetTempFileName()
-                # /snap.cgi zuerst (hat 401 geliefert = Endpunkt existiert)
                 $instarDigestUrls = @(
                     "http://$($K.ip):$httpPort/snap.cgi",
                     "http://$($K.ip):$httpPort/tmpfs/snap.jpg",
