@@ -31,6 +31,7 @@ $Creds = [PSCustomObject]@{
     MailstoreWinPass = (ConvertTo-SecureStringSafe $credRaw.mailstore_win_pass)
     ReolinkPass      = (ConvertTo-SecureStringSafe $credRaw.reolink_pass)
     InstarPass       = (ConvertTo-SecureStringSafe $credRaw.instar_pass)
+    NtopngPass       = (ConvertTo-SecureStringSafe $credRaw.ntopng_pass)
 }
 
 if (-not $Creds.SmtpPass) {
@@ -45,8 +46,9 @@ $FfprobePfad       = $Config.einstellungen.ffprobe_pfad
 $FfprobeVerfuegbar = Test-Path $FfprobePfad
 
 # ── Checks ───────────────────────────────────────────────────────────────────
-$GeraeteListe = $Config.geraete | Where-Object { $_.aktiv -eq $true }
-$AlleErgebnisse = @()
+$GeraeteListe        = $Config.geraete | Where-Object { $_.aktiv -eq $true }
+$AlleErgebnisse      = @()
+$script:NtopngResult = $null
 
 Clear-Host
 Write-Host ""
@@ -87,9 +89,10 @@ foreach ($G in $GeraeteListe) {
                     $details = $piholeResult
                 }
                 if ($G.checks -contains "ntopng_api") {
-                    $ntopResult = Check-NtopngAPI -IP $G.ip
+                    $ntopResult = Check-NtopngAPI -IP $G.ip -PassSecure $Creds.NtopngPass
                     if ($ntopResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
-                    $checkInfo += " | ntopng/:3000 $($ntopResult.Status)"
+                    $checkInfo += " | ntopng/:3000 $($ntopResult.Status) ($($ntopResult.AnzahlExtern) ext.)"
+                    $script:NtopngResult = $ntopResult
                 }
             }
             "nas_synology" {
@@ -310,6 +313,34 @@ if ($LoginResult) {
 "@
 }
 
+# ntopng-Sektion aufbauen
+$ntopngSektionHtml = ""
+if ($script:NtopngResult) {
+    $ntopStatusFarbe  = if ($script:NtopngResult.Status -eq "FEHLER") { "#f85149" } else { "#3fb950" }
+    $ntopngZeilenHtml = ""
+    if ($script:NtopngResult.ExterneFlows -and $script:NtopngResult.ExterneFlows.Count -gt 0) {
+        foreach ($flow in $script:NtopngResult.ExterneFlows) {
+            $appText   = if ($flow.App) { $flow.App } else { $flow.Protokoll }
+            $bytesText = if ($flow.Bytes -gt 1MB)  { "$([math]::Round($flow.Bytes/1MB,1)) MB" }
+                         elseif ($flow.Bytes -gt 1KB) { "$([math]::Round($flow.Bytes/1KB,1)) KB" }
+                         else { "$($flow.Bytes) B" }
+            $ntopngZeilenHtml += "<tr><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($flow.ExterneIP)</td><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($flow.InternIP)</td><td style='padding:5px 8px;font-size:0.82em;border-bottom:1px solid #21262d;'>$appText :$($flow.Port)</td><td style='padding:5px 8px;font-size:0.82em;color:#8b949e;border-bottom:1px solid #21262d;'>$bytesText</td></tr>"
+        }
+    }
+    $ntopngTabelleHtml = if ($ntopngZeilenHtml) { @"
+    <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;font-size:0.85em;'>
+      <thead><tr style='background:#21262d;'><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Externe IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Interne IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>App / Port</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Daten</th></tr></thead>
+      <tbody>$ntopngZeilenHtml</tbody>
+    </table>
+"@ } else { "<p style='color:#8b949e;font-size:0.85em;'>Keine aktiven externen Verbindungen.</p>" }
+
+    $ntopngSektionHtml = @"
+    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>ntopng – Aktive externe Verbindungen</h3>
+    <p style='color:$ntopStatusFarbe;font-size:0.88em;margin-bottom:8px;'>$($script:NtopngResult.Info)</p>
+    $ntopngTabelleHtml
+"@
+}
+
 $body = @"
 <!DOCTYPE html>
 <html>
@@ -355,6 +386,7 @@ $body = @"
 
     $snapshotHtml
     $loginSektionHtml
+    $ntopngSektionHtml
     <p style='color:#8b949e;font-size:0.8em;margin-top:16px;'>
       Heimnetz Monitor v2.0 | $zeitstempel<br>
       Ping-Bewertung: <span style='color:#3fb950;'>LAN &le;2ms / gut &le;10ms</span> &nbsp;
