@@ -101,11 +101,12 @@ foreach ($G in $GeraeteListe) {
                     $checkInfo = "SSH/:$($G.ssh_port) | $($nasResult.Info)"
                 }
                 if ($G.docker -eq $true -and $checkStatus -ne "FEHLER") {
-                    $dPort    = if ($G.docker_port)  { [int]$G.docker_port }  else { 3000 }
-                    $dApp     = if ($G.docker_pfad)  { Split-Path $G.docker_pfad -Leaf } else { "docker" }
-                    $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user -DockerPort $dPort -AppName $dApp
-                    if ($dockerResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
-                    $checkInfo += " | Docker: $($dockerResult.Container_Name) ($($dockerResult.Container_Status))"
+                    $dContainers = if ($G.docker_containers) { $G.docker_containers } else { @() }
+                    $dPort       = if ($G.docker_port)       { [int]$G.docker_port }  else { 3000 }
+                    $dApp        = if ($G.docker_pfad)       { Split-Path $G.docker_pfad -Leaf } else { "docker" }
+                    $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user -Containers $dContainers -DockerPort $dPort -AppName $dApp
+                    if ($dockerResult.Status -ne "OK" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
+                    $checkInfo += " | $($dockerResult.Info)"
                     if ($details) { Add-Member -InputObject $details -MemberType NoteProperty -Name "Docker" -Value $dockerResult -Force }
                 }
             }

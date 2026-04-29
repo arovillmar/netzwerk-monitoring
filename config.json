@@ -25,7 +25,12 @@
       "ip": "192.168.80.1",
       "typ": "router",
       "aktiv": true,
-      "checks": ["ping", "http_80", "tr064_api", "vpn_log"],
+      "checks": [
+        "ping",
+        "http_80",
+        "tr064_api",
+        "vpn_log"
+      ],
       "info": "Hauptrouter, Gateway, DHCP-Server. VPN: WireGuard + IPSec. MyFRITZ! externer Zugang aktiv."
     },
     {
@@ -36,7 +41,12 @@
       "aktiv": true,
       "ssh_port": 22,
       "ssh_user": "pi",
-      "checks": ["ping", "ssh", "pihole_api", "ntopng_api"],
+      "checks": [
+        "ping",
+        "ssh",
+        "pihole_api",
+        "ntopng_api"
+      ],
       "info": "Debian Trixie, Hostname: raspberry5. Pi-hole: http://192.168.80.20/admin. ntopng: http://192.168.80.20:3000. SSH via Key-Authentifizierung."
     },
     {
@@ -51,8 +61,33 @@
       "docker": true,
       "docker_pfad": "/volume2/docker/maennerballet",
       "docker_port": 3000,
-      "checks": ["ping", "ssh", "synology_api", "docker", "smart", "speicherplatz", "external_logins"],
-      "info": "Haupt-NAS, Docker installiert. DSM: http://192.168.80.206:5000. Männerballet-App auf Port 3000. Dauerbetrieb 24/7."
+      "checks": [
+        "ping",
+        "ssh",
+        "synology_api",
+        "docker",
+        "smart",
+        "speicherplatz",
+        "external_logins"
+      ],
+      "info": "Haupt-NAS, Docker installiert. DSM: http://192.168.80.206:5000. Container: maennerballet(3000), bookstack(6875), nginx-rtmp(1935). Dauerbetrieb 24/7.",
+      "docker_containers": [
+        {
+          "name": "maennerballet",
+          "port": 3000,
+          "info": "Webapp"
+        },
+        {
+          "name": "bookstack",
+          "port": 6875,
+          "info": "Wiki/Doku"
+        },
+        {
+          "name": "nginx-rtmp",
+          "port": 1935,
+          "info": "RTMP-Stream"
+        }
+      ]
     },
     {
       "id": 4,
@@ -64,7 +99,14 @@
       "ssh_user": "Armin",
       "dsm_port": 5000,
       "docker": false,
-      "checks": ["ping", "ssh", "synology_api", "smart", "speicherplatz", "external_logins"],
+      "checks": [
+        "ping",
+        "ssh",
+        "synology_api",
+        "smart",
+        "speicherplatz",
+        "external_logins"
+      ],
       "info": "Zweites NAS, kein Docker. DSM: http://192.168.80.207:5000. Dauerbetrieb 24/7."
     },
     {
@@ -73,7 +115,11 @@
       "ip": "192.168.80.87",
       "typ": "windows_host",
       "aktiv": true,
-      "checks": ["ping", "rdp_port_3389", "external_logins"],
+      "checks": [
+        "ping",
+        "rdp_port_3389",
+        "external_logins"
+      ],
       "info": "Windows 10 Pro 64-bit. Hostet die Mailstore VM. RDP-Port 3389."
     },
     {
@@ -83,7 +129,11 @@
       "typ": "mailstore",
       "aktiv": true,
       "api_port": 8463,
-      "checks": ["ping", "port_8463", "mailstore_api"],
+      "checks": [
+        "ping",
+        "port_8463",
+        "mailstore_api"
+      ],
       "bekannte_probleme": [
         "andrearosbach27@gmail.com → 11 Fehlschläge (Gmail OAuth2 Problem)",
         "Andrea_IMAP_IONOS → Warnung unverschlüsselt",
@@ -99,7 +149,10 @@
       "typ": "sma_homemanager",
       "aktiv": true,
       "speedwire_port": 9522,
-      "checks": ["ping", "speedwire_port_9522"],
+      "checks": [
+        "ping",
+        "speedwire_port_9522"
+      ],
       "info": "Photovoltaik-Anlage Steuerung. Speedwire Protokoll TCP Port 9522. Sendet permanent Daten."
     },
     {
@@ -110,7 +163,10 @@
       "aktiv": true,
       "api_url": "http://192.168.80.122/data.jsn",
       "temp_max": 75,
-      "checks": ["ping", "http_json_api"],
+      "checks": [
+        "ping",
+        "http_json_api"
+      ],
       "info": "my-PV AC ELWA-E. Frischwasser-Aufbereitung via Photovoltaik. Warnung bei temp1 > 75°C."
     },
     {
@@ -119,7 +175,11 @@
       "ip": "192.168.80.75",
       "typ": "powerline_fritzbox",
       "aktiv": true,
-      "checks": ["ping", "http_80", "tr064_powerline"],
+      "checks": [
+        "ping",
+        "http_80",
+        "tr064_powerline"
+      ],
       "info": "Fritz!Box Powerline Adapter. HTTP-Interface Port 80."
     },
     {
@@ -128,7 +188,11 @@
       "ip": "192.168.80.77",
       "typ": "powerline_fritzbox",
       "aktiv": true,
-      "checks": ["ping", "http_80", "tr064_powerline"],
+      "checks": [
+        "ping",
+        "http_80",
+        "tr064_powerline"
+      ],
       "info": "Fritz!Box Powerline Adapter. HTTP-Interface Port 80."
     },
     {
@@ -137,7 +201,11 @@
       "ip": "192.168.80.138",
       "typ": "powerline_fritzbox",
       "aktiv": true,
-      "checks": ["ping", "http_80", "tr064_powerline"],
+      "checks": [
+        "ping",
+        "http_80",
+        "tr064_powerline"
+      ],
       "info": "Fritz!Box Powerline Adapter. HTTP-Interface Port 80."
     },
     {
@@ -151,7 +219,12 @@
       "rtsp_port": 554,
       "http_port": 80,
       "rtsp_url": "rtsp://192.168.80.76:554/h264Preview_01_main",
-      "checks": ["ping", "rtsp_554", "http_80", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_80",
+        "stream_check"
+      ],
       "info": "Reolink RLC-820A. Garten Kamera 2."
     },
     {
@@ -165,7 +238,12 @@
       "rtsp_port": 554,
       "http_port": 80,
       "rtsp_url": "rtsp://192.168.80.127:554/h264Preview_01_main",
-      "checks": ["ping", "rtsp_554", "http_80", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_80",
+        "stream_check"
+      ],
       "info": "Reolink RLC-820A. Garten Kamera 1."
     },
     {
@@ -179,7 +257,12 @@
       "rtsp_port": 554,
       "http_port": 9000,
       "rtsp_url": "rtsp://192.168.80.130:554/h264Preview_01_main",
-      "checks": ["ping", "rtsp_554", "http_9000", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_9000",
+        "stream_check"
+      ],
       "info": "Reolink RLC-843A. Eingangskamera. HTTP-Port 9000 (neuere Firmware-Generation)."
     },
     {
@@ -193,7 +276,12 @@
       "rtsp_port": 554,
       "http_port": 80,
       "rtsp_url": "rtsp://192.168.80.171:554/h264Preview_01_main",
-      "checks": ["ping", "rtsp_554", "http_80", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_80",
+        "stream_check"
+      ],
       "info": "Reolink RLC-810A. Keller/Werkstatt."
     },
     {
@@ -207,7 +295,12 @@
       "rtsp_port": 554,
       "http_port": 80,
       "rtsp_url": "rtsp://192.168.80.172:554/h264Preview_01_main",
-      "checks": ["ping", "rtsp_554", "http_80", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_80",
+        "stream_check"
+      ],
       "info": "Reolink RLC-820A. Garten Kamera 4."
     },
     {
@@ -220,7 +313,12 @@
       "rtsp_port": 554,
       "http_port": 8080,
       "rtsp_url": "rtsp://192.168.80.67:554/11",
-      "checks": ["ping", "rtsp_554", "http_8080", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_8080",
+        "stream_check"
+      ],
       "info": "INSTAR Kamera 1."
     },
     {
@@ -233,7 +331,12 @@
       "rtsp_port": 554,
       "http_port": 8080,
       "rtsp_url": "rtsp://SPÄTER_NACHTRAGEN:554/11",
-      "checks": ["ping", "rtsp_554", "http_8080", "stream_check"],
+      "checks": [
+        "ping",
+        "rtsp_554",
+        "http_8080",
+        "stream_check"
+      ],
       "info": "INSTAR Kamera 2. IP noch nicht bekannt – deaktiviert bis IP eingetragen."
     }
   ]

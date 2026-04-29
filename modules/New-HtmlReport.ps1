@@ -121,11 +121,17 @@ function New-HtmlReport {
                         $detailHtml += "<p style='color:#8b949e;font-size:0.85em;margin:6px 0;'>Uptime: <span style='color:#e6edf3;'>$($d.Uptime)</span></p>"
                     }
                     if ($d.Docker) {
-                        $dok    = $d.Docker
-                        $dFarbe = switch ($dok.Status) { "OK" { "#3fb950" } "WARNUNG" { "#d29922" } default { "#f85149" } }
-                        $uptimeStr = if ($dok.Container_Uptime -and $dok.Container_Uptime -ne "n/a") { " <span style='color:#6e7681;font-size:0.85em;'>(seit $($dok.Container_Uptime))</span>" } else { "" }
-                        $portStr   = if ($dok.Port_Mapping -and $dok.Port_Mapping -ne "n/a")         { " <span style='color:#6e7681;font-size:0.85em;'>Port $($dok.Port_Mapping)</span>" } else { "" }
-                        $detailHtml += "<div style='margin-top:8px;font-size:0.88em;padding:6px 10px;background:#21262d;border-radius:5px;'>&#x1F433; Docker: <span style='color:$dFarbe;font-weight:bold;'>$($dok.Container_Name)</span> <span style='color:#8b949e;'>$($dok.Container_Status)</span>$uptimeStr$portStr <span style='color:$dFarbe;font-weight:bold;margin-left:8px;'>$($dok.Status)</span></div>"
+                        $dok = $d.Docker
+                        $dGesamtFarbe = switch ($dok.Status) { "OK" { "#3fb950" } "WARNUNG" { "#d29922" } default { "#f85149" } }
+                        $kacheln = ""
+                        if ($dok.Ergebnisse -and $dok.Ergebnisse.Count -gt 0) {
+                            foreach ($c in $dok.Ergebnisse) {
+                                $cFarbe  = if ($c.Status -eq "OK") { "#3fb950" } else { "#f85149" }
+                                $cSymbol = if ($c.Status -eq "OK") { "&#x2705;" } else { "&#x274C;" }
+                                $kacheln += "<div style='display:inline-block;background:#161b22;border:1px solid $cFarbe;border-radius:5px;padding:5px 10px;margin:3px;font-size:0.85em;'><span>$cSymbol</span> <span style='color:#e6edf3;font-weight:bold;'>$($c.Name)</span> <span style='color:#6e7681;'>:$($c.Port)</span></div>"
+                            }
+                        }
+                        $detailHtml += "<div style='margin-top:10px;padding:8px 10px;background:#21262d;border-radius:6px;border-left:3px solid $dGesamtFarbe;'><div style='color:#8b949e;font-size:0.8em;margin-bottom:5px;'>&#x1F433; Docker-Container</div><div>$kacheln</div></div>"
                     }
                 }
                 "mailstore" {
