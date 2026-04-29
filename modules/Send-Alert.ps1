@@ -160,6 +160,30 @@ function New-AlertBody {
         "Entwarnung"   { "Problem behoben – Alles OK" }
     }
 
+    # Snapshot-Sektion aufbauen
+    $snapshotSektionHtml = ""
+    $alleKameras  = $Ergebnisse | Where-Object { $_.Typ -in @("kamera_reolink","kamera_instar") }
+    $kamsWithSnap = $alleKameras | Where-Object { $_.Details -and $_.Details.Snapshot_B64 }
+    if ($kamsWithSnap.Count -gt 0) {
+        $snapBlocks = ""
+        foreach ($k in $kamsWithSnap) {
+            $statusFarbe = switch ($k.CheckStatus) { "FEHLER" { "#f85149" } "WARNUNG" { "#d29922" } default { "#3fb950" } }
+            $snapBlocks += @"
+      <div style='display:inline-block;vertical-align:top;margin:6px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;width:260px;'>
+        <div style='font-size:0.85em;font-weight:600;margin-bottom:4px;color:#e6edf3;'>$($k.Geraet)</div>
+        <div style='font-size:0.78em;color:#8b949e;margin-bottom:6px;font-family:monospace;'>$($k.IP) &nbsp;<span style='color:$statusFarbe;'>$($k.CheckStatus)</span></div>
+        <img src='data:image/jpeg;base64,$($k.Details.Snapshot_B64)' style='width:100%;border-radius:4px;display:block;' alt='$($k.Geraet)'>
+      </div>
+"@
+        }
+        $snapshotSektionHtml = @"
+    <h2 style='color:#58a6ff;font-size:1em;margin:24px 0 8px;'>Kamera-Snapshots ($($kamsWithSnap.Count)/$($alleKameras.Count))</h2>
+    <div style='background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;'>
+      $snapBlocks
+    </div>
+"@
+    }
+
     # Login-Sektion aufbauen
     $loginSektionHtml = ""
     if ($LoginResult) {
@@ -213,6 +237,7 @@ function New-AlertBody {
       </tbody>
     </table>
     $loginSektionHtml
+    $snapshotSektionHtml
     <p style='color:#8b949e;font-size:0.85em;margin-top:20px;'>
       Heimnetz Monitor v2.0 | Automatisch generiert am $Zeitstempel
     </p>
