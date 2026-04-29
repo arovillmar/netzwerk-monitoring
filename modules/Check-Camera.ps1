@@ -110,13 +110,14 @@ function Check-Camera {
         $pEnc = [Uri]::EscapeDataString($passKlar)
         $uEnc = [Uri]::EscapeDataString($ReolinkUser)
 
-        # Snapshot-Endpunkte: zuerst Port 443 (Standard-HTTPS bei Port-80-Kameras),
-        # dann expliziter HttpPort als Fallback (z.B. Port 9000)
+        # Snapshot-Endpunkte: HTTPS Port 443 → HTTPS HttpPort → HTTP HttpPort → HTTP Port 80
         $snapUrls = @(
             "https://$IP/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
             "https://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
+            "http://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
             "https://$IP/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "https://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
+            "https://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
+            "http://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
         )
 
         foreach ($snapUri in $snapUrls) {
