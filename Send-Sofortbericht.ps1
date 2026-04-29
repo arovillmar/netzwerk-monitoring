@@ -263,13 +263,26 @@ foreach ($e in $AlleErgebnisse) {
     }
     $latAnzeige = if ($latLabel) { "$latText <span style='font-size:0.8em;'>$latLabel</span>" } else { $latText }
 
+    # Info-Spalte: Docker-Teil farblich absetzen
+    $infoHauptteil = $e.Info -replace '\s*\|\s*Docker:.*$', ''
+    $infoDockerHtml = ""
+    if ($e.Info -match '\|\s*(Docker:.+)$') {
+        $dockerTeile = $Matches[1] -split '\s{2,}'
+        $dockerBausteine = ($dockerTeile | ForEach-Object {
+            if ($_ -match ':OK$')     { "<span style='color:#3fb950;'>$_</span>" }
+            elseif ($_ -match ':FEHLER$') { "<span style='color:#f85149;font-weight:bold;'>$_</span>" }
+            else                      { "<span style='color:#8b949e;'>$_</span>" }
+        }) -join " &nbsp; "
+        $infoDockerHtml = "<br><span style='color:#58a6ff;font-size:0.82em;'>&#x1F433; $dockerBausteine</span>"
+    }
+
     $tabellenZeilen += @"
         <tr style='${bgStyle}border-bottom:1px solid #21262d;'>
           <td style='padding:7px 10px;font-weight:500;'>$($e.Geraet)</td>
           <td style='padding:7px 10px;font-family:monospace;font-size:0.88em;color:#8b949e;'>$($e.IP)</td>
           <td style='padding:7px 10px;font-family:monospace;font-size:0.88em;color:$latFarbe;white-space:nowrap;'>$latAnzeige</td>
           <td style='padding:7px 10px;color:$statusFarbe;font-weight:bold;'>$($e.CheckStatus)</td>
-          <td style='padding:7px 10px;font-size:0.88em;color:#c9d1d9;font-family:monospace;'>$($e.Info)</td>
+          <td style='padding:7px 10px;font-size:0.88em;color:#c9d1d9;font-family:monospace;'>$infoHauptteil$infoDockerHtml</td>
         </tr>
 "@
 }

@@ -70,7 +70,7 @@
         "speicherplatz",
         "external_logins"
       ],
-      "info": "Haupt-NAS, Docker installiert. DSM: http://192.168.80.206:5000. Container: maennerballet(3000), bookstack(6875), nginx-rtmp(1935). Dauerbetrieb 24/7.",
+      "info": "Haupt-NAS, Docker installiert. DSM: http://192.168.80.206:5000. Container: maennerballet(3000), bookstack(6875), nginx-rtmp(1935), nginx(8080). Dauerbetrieb 24/7.",
       "docker_containers": [
         {
           "name": "maennerballet",
@@ -86,6 +86,11 @@
           "name": "nginx-rtmp",
           "port": 1935,
           "info": "RTMP-Stream"
+        },
+        {
+          "name": "nginx",
+          "port": 8080,
+          "info": "nginx HTTP"
         }
       ]
     },

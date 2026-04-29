@@ -125,12 +125,23 @@ function New-AlertBody {
             "WARNUNG" { "WARNUNG" }
             default   { "OK" }
         }
+        $infoHauptteil  = $e.Info -replace '\s*\|\s*Docker:.*$', ''
+        $infoDockerHtml = ""
+        if ($e.Info -match '\|\s*(Docker:.+)$') {
+            $dockerTeile = $Matches[1] -split '\s{2,}'
+            $dockerBausteine = ($dockerTeile | ForEach-Object {
+                if ($_ -match ':OK$')         { "<span style='color:#3fb950;'>$_</span>" }
+                elseif ($_ -match ':FEHLER$') { "<span style='color:#f85149;font-weight:bold;'>$_</span>" }
+                else                          { "<span style='color:#8b949e;'>$_</span>" }
+            }) -join " &nbsp; "
+            $infoDockerHtml = "<br><span style='color:#58a6ff;font-size:0.82em;'>&#x1F433; $dockerBausteine</span>"
+        }
         $tabellenZeilen += @"
         <tr>
           <td style='padding:6px 10px;border-bottom:1px solid #30363d;'>$($e.Geraet)</td>
           <td style='padding:6px 10px;border-bottom:1px solid #30363d;font-family:monospace;'>$($e.IP)</td>
           <td style='padding:6px 10px;border-bottom:1px solid #30363d;color:$farbe;font-weight:bold;'>$symbol</td>
-          <td style='padding:6px 10px;border-bottom:1px solid #30363d;font-size:0.9em;'>$($e.Info)</td>
+          <td style='padding:6px 10px;border-bottom:1px solid #30363d;font-size:0.9em;'>$infoHauptteil$infoDockerHtml</td>
         </tr>
 "@
     }
