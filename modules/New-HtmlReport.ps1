@@ -2,6 +2,7 @@ function New-HtmlReport {
     param(
         [array]$Ergebnisse,
         $LoginResult,
+        $NtopngResult,
         [int]$AnzahlOK,
         [int]$AnzahlWarn,
         [int]$AnzahlFehler,
@@ -253,6 +254,36 @@ $(if ($detailBlock) { "<tr><td colspan='7' style='padding:0;'>$detailBlock</td><
 "@
     }
 
+    # ── ntopng Sektion ───────────────────────────────────────────────────────
+    $ntopngHtml = ""
+    if ($NtopngResult) {
+        $ntopFarbe    = if ($NtopngResult.Status -eq "FEHLER") { "#f85149" } else { "#3fb950" }
+        $ntopngZeilen = ""
+        if ($NtopngResult.ExterneFlows -and $NtopngResult.ExterneFlows.Count -gt 0) {
+            foreach ($flow in $NtopngResult.ExterneFlows) {
+                $appText   = if ($flow.App) { $flow.App } else { $flow.Protokoll }
+                $bytesText = if ($flow.Bytes -gt 1MB)  { "$([math]::Round($flow.Bytes/1MB,1)) MB" }
+                             elseif ($flow.Bytes -gt 1KB) { "$([math]::Round($flow.Bytes/1KB,1)) KB" }
+                             else { "$($flow.Bytes) B" }
+                $ntopngZeilen += "<tr><td style='padding:5px 10px;font-family:monospace;font-size:0.83em;'>$($flow.ExterneIP)</td><td style='padding:5px 10px;font-family:monospace;font-size:0.83em;'>$($flow.InternIP)</td><td style='padding:5px 10px;font-size:0.83em;'>$appText :$($flow.Port)</td><td style='padding:5px 10px;font-size:0.83em;color:#8b949e;'>$bytesText</td></tr>"
+            }
+        }
+        $ntopngTabelle = if ($ntopngZeilen) { @"
+  <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:8px;overflow:hidden;'>
+    <thead><tr style='background:#21262d;'><th style='padding:8px 10px;text-align:left;color:#8b949e;font-size:0.83em;'>Externe IP</th><th style='padding:8px 10px;text-align:left;color:#8b949e;font-size:0.83em;'>Interne IP</th><th style='padding:8px 10px;text-align:left;color:#8b949e;font-size:0.83em;'>App / Port</th><th style='padding:8px 10px;text-align:left;color:#8b949e;font-size:0.83em;'>Daten</th></tr></thead>
+    <tbody>$ntopngZeilen</tbody>
+  </table>
+"@ } else { "<p style='color:#8b949e;font-size:0.85em;padding:8px 0;'>Keine aktiven externen Verbindungen.</p>" }
+
+        $ntopngHtml = @"
+<div style='margin-top:32px;'>
+  <h2 style='color:#58a6ff;font-size:1.05em;margin-bottom:6px;'>ntopng – Aktive externe Verbindungen</h2>
+  <p style='color:$ntopFarbe;font-size:0.88em;margin-bottom:10px;'>$($NtopngResult.Info)</p>
+  $ntopngTabelle
+</div>
+"@
+    }
+
     # ── Vollständiger HTML-Report ────────────────────────────────────────────
     return @"
 <!DOCTYPE html>
@@ -309,6 +340,7 @@ tr:hover{filter:brightness(1.07);}
     </tbody>
   </table>
   $loginHtml
+  $ntopngHtml
   <div class="footer">
     $gesamtGeraete Geräte &nbsp;|&nbsp; $AnzahlOK OK &nbsp;|&nbsp; $AnzahlWarn Warnungen &nbsp;|&nbsp; $AnzahlFehler Fehler &nbsp;|&nbsp;
     Laufzeit: $($LaufzeitSek)s &nbsp;|&nbsp; Nächste Prüfung: $naechsteCheck Uhr &nbsp;|&nbsp;

@@ -318,6 +318,7 @@ $reportPfad      = Join-Path $Config.einstellungen.report_pfad $reportDateiname
 $reportAktuell   = Join-Path $Config.einstellungen.report_pfad "Monitor_Aktuell.html"
 
 $htmlContent = New-HtmlReport -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult `
+    -NtopngResult $script:NtopngResult `
     -AnzahlOK $AnzahlOK -AnzahlWarn $AnzahlWarn -AnzahlFehler $AnzahlFehler `
     -LaufzeitSek $LaufzeitSek -Config $Config
 
