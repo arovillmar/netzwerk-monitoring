@@ -24,36 +24,6 @@ function Check-Camera {
     $apiStatus   = "n/a"
     $geraetInfo  = ""
 
-    # ── Lockout-Schutz (nur Reolink) ─────────────────────────────────────────
-    $lockoutPfad   = ""
-    $lockoutAktiv  = $false
-
-    if ($Typ -eq "reolink") {
-        $scriptRoot  = Split-Path -Parent $PSScriptRoot
-        $lockoutPfad = Join-Path $scriptRoot "logs\camera_lockout.json"
-
-        if (Test-Path $lockoutPfad) {
-            try {
-                $lockoutDaten = Get-Content $lockoutPfad -Raw | ConvertFrom-Json
-                $ipKey        = $IP -replace '\.','-'
-                if ($lockoutDaten.$ipKey) {
-                    $eintrag    = $lockoutDaten.$ipKey
-                    $letzteZeit = [datetime]::Parse($eintrag.letzte_zeit)
-                    $versuche   = [int]$eintrag.versuche
-                    # Reset nach 60 Minuten
-                    if ((Get-Date) - $letzteZeit -gt [TimeSpan]::FromMinutes(60)) {
-                        $lockoutDaten.$ipKey = $null
-                        $lockoutDaten | ConvertTo-Json | Set-Content $lockoutPfad -Encoding UTF8
-                    }
-                    elseif ($versuche -ge 3) {
-                        $lockoutAktiv = $true
-                    }
-                }
-            }
-            catch {}
-        }
-    }
-
     # ── Ping ──────────────────────────────────────────────────────────────────
     try {
         Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 2 -ErrorAction Stop | Out-Null
@@ -131,123 +101,56 @@ function Check-Camera {
         catch {}
     }
 
-    # ── Reolink API (nur wenn Passwort vorhanden und kein Lockout) ────────────
-    if ($Typ -eq "reolink" -and $ReolinkPassSecure -and $httpOK -and -not $lockoutAktiv) {
+    # ── Reolink Snapshot (GET-URL mit Credentials – kein Login-Token nötig) ────
+    if ($Typ -eq "reolink" -and $ReolinkPassSecure -and $httpOK) {
         $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($ReolinkPassSecure)
         $passKlar = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
-        $ssl    = @{ SkipCertificateCheck = $true }
-        $token  = $null
-        $aktApi = $null
+        $pEnc = [Uri]::EscapeDataString($passKlar)
+        $uEnc = [Uri]::EscapeDataString($ReolinkUser)
 
-        $loginObj  = @([PSCustomObject]@{
-            cmd    = "Login"
-            action = 0
-            param  = @{ User = @{ userName = $ReolinkUser; password = $passKlar } }
-        })
-        $loginBody  = $loginObj | ConvertTo-Json -Depth 6 -Compress
-        if (-not $loginBody.StartsWith('[')) { $loginBody = "[$loginBody]" }
-        $loginBytes = [System.Text.Encoding]::UTF8.GetBytes($loginBody)
+        # Snapshot-Endpunkte (neuere Firmware: GET mit user/password in URL)
+        $snapUrls = @(
+            "https://$IP/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
+            "https://$IP/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
+        )
 
-        foreach ($endpoint in @("https://$IP/api.cgi", "https://$IP/cgi-bin/api.cgi")) {
+        foreach ($snapUri in $snapUrls) {
+            if ($snapshotB64) { break }
             try {
-                $resp = Invoke-RestMethod -Uri $endpoint -Method Post @ssl `
-                    -Body $loginBytes -ContentType "application/json" -TimeoutSec 8 -ErrorAction Stop
-                if ($resp -and $resp[0].code -eq 0) {
-                    $token  = $resp[0].value.Token.name
-                    $aktApi = $endpoint
-                    $apiStatus = "Login OK"
-                    break
+                $r = Invoke-WebRequest -Uri $snapUri -SkipCertificateCheck -TimeoutSec 12 -ErrorAction Stop
+                if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
+                    $snapshotB64 = [Convert]::ToBase64String($r.Content)
+                    $apiStatus   = "Snapshot OK"
                 }
             }
             catch {}
         }
 
-        # Lockout-Zähler aktualisieren
-        if ($lockoutPfad) {
-            try {
-                $ld    = if (Test-Path $lockoutPfad) { Get-Content $lockoutPfad -Raw | ConvertFrom-Json } else { [PSCustomObject]@{} }
-                $ipKey = $IP -replace '\.','-'
-                if ($token) {
-                    # Login erfolgreich → Zähler zurücksetzen
-                    $ld | Add-Member -NotePropertyName $ipKey -NotePropertyValue $null -Force
-                }
-                else {
-                    # Login fehlgeschlagen → Zähler erhöhen
-                    $alt     = if ($ld.$ipKey) { [int]$ld.$ipKey.versuche } else { 0 }
-                    $neuerEintrag = [PSCustomObject]@{ versuche = $alt + 1; letzte_zeit = (Get-Date -Format "o") }
-                    $ld | Add-Member -NotePropertyName $ipKey -NotePropertyValue $neuerEintrag -Force
-                    if ($alt + 1 -ge 3) {
-                        $apiStatus = "Lockout-Schutz aktiv (>= 3 Fehlversuche)"
-                    }
-                }
-                $ld | ConvertTo-Json | Set-Content $lockoutPfad -Encoding UTF8
-            }
-            catch {}
-        }
-
-        if ($token -and $aktApi) {
-            $tq = "?token=$([Uri]::EscapeDataString($token))"
-            # Geräte-Info
-            try {
-                $ir = Invoke-RestMethod -Uri "$aktApi$tq" -Method Post @ssl `
-                    -Body '[{"cmd":"GetDevInfo","action":0,"param":{"channel":0}}]' `
-                    -ContentType "application/json" -TimeoutSec 8 -ErrorAction Stop
-                if ($ir -and $ir[0].value.DevInfo) {
-                    $di        = $ir[0].value.DevInfo
-                    $geraetInfo = "$($di.model) FW:$($di.firmVer)"
-                    $apiStatus  = "OK"
-                }
-            }
-            catch {}
-
-            # Snapshot
-            $snapBase = $aktApi -replace '/(api|cgi-bin/api)\.cgi.*', ''
-            foreach ($snapUri in @(
-                "$snapBase/cgi-bin/api.cgi?cmd=Snap&channel=0&token=$([Uri]::EscapeDataString($token))",
-                "$snapBase/snap.cgi?chn=0&user=$([Uri]::EscapeDataString($ReolinkUser))&password=$([Uri]::EscapeDataString($passKlar))"
-            )) {
-                if ($snapshotB64) { break }
-                try {
-                    $r = Invoke-WebRequest -Uri $snapUri @ssl -TimeoutSec 10 -ErrorAction Stop
-                    if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
-                        $snapshotB64 = [Convert]::ToBase64String($r.Content)
-                    }
-                }
-                catch {}
-            }
-
-            # Logout
-            try {
-                Invoke-RestMethod -Uri "$aktApi`?token=$token" -Method Post @ssl `
-                    -Body '[{"cmd":"Logout","action":0,"param":{}}]' `
-                    -ContentType "application/json" -TimeoutSec 4 | Out-Null
-            }
-            catch {}
-        }
+        if (-not $snapshotB64) { $apiStatus = "Snapshot fehlgeschlagen" }
         $passKlar = $null
-    }
-    elseif ($Typ -eq "reolink" -and $lockoutAktiv) {
-        $apiStatus = "Lockout-Schutz aktiv – Check übersprungen"
     }
     elseif ($Typ -eq "instar" -and $httpOK) {
         $apiStatus = "HTTP OK"
     }
 
     # ── Gesamtstatus ──────────────────────────────────────────────────────────
-    $gesamtStatus = if (-not $pingOK)         { "FEHLER"  }
-                    elseif (-not $rtspOK -and -not $httpOK) { "FEHLER"  }
-                    elseif (-not $rtspOK -or -not $httpOK)  { "WARNUNG" }
-                    else                                     { "OK"      }
+    # FEHLER: kein Ping, oder weder HTTP noch RTSP erreichbar
+    # WARNUNG: HTTP offen aber RTSP geschlossen (RTSP deaktiviert in Kamera-Settings)
+    # OK: HTTP offen (+ optional RTSP)
+    $gesamtStatus = if (-not $pingOK)                        { "FEHLER"  }
+                    elseif (-not $httpOK -and -not $rtspOK)  { "FEHLER"  }
+                    elseif ($httpOK -and -not $rtspOK)       { "WARNUNG" }
+                    else                                      { "OK"      }
 
     $infoTeile = @(
         "RTSP/554: $(if ($rtspOK) { 'OFFEN' } else { 'ZU' })",
         "HTTP/$HttpPort`: $(if ($httpOK) { 'OFFEN' } else { 'ZU' })"
     )
+    if ($snapshotB64)          { $infoTeile += "Snapshot OK" }
     if ($streamInfo -ne "n/a") { $infoTeile += $streamInfo }
     if ($geraetInfo)           { $infoTeile += $geraetInfo }
-    if ($lockoutAktiv)         { $infoTeile += "LOCKOUT aktiv!" }
 
     $startzeit.Stop()
 
@@ -257,12 +160,12 @@ function Check-Camera {
         RTSP_Port      = if ($rtspOK) { "OFFEN" } else { "GESCHLOSSEN" }
         HTTP_Port      = if ($httpOK) { "OFFEN" } else { "GESCHLOSSEN" }
         HTTP_PortNr    = $HttpPort
-        Stream_Aktiv   = if ($aufloesung -ne "n/a") { $true } else { $false }
+        Stream_Aktiv   = if ($snapshotB64) { $true } else { $false }
         Aufloesung     = $aufloesung
         Codec          = $codec
         Snapshot_B64   = $snapshotB64
         API_Status     = $apiStatus
-        Lockout_Aktiv  = $lockoutAktiv
+        Lockout_Aktiv  = $false
         Antwortzeit_ms = $startzeit.ElapsedMilliseconds
         Info           = $infoTeile -join " | "
     }
