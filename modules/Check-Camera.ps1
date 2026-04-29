@@ -101,7 +101,7 @@ function Check-Camera {
         catch {}
     }
 
-    # ── Reolink Snapshot (GET-URL mit Credentials – kein Login-Token nötig) ────
+    # ── Reolink Snapshot ──────────────────────────────────────────────────────
     if ($Typ -eq "reolink" -and $ReolinkPassSecure -and $httpOK) {
         $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($ReolinkPassSecure)
         $passKlar = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
@@ -109,16 +109,20 @@ function Check-Camera {
 
         $pEnc = [Uri]::EscapeDataString($passKlar)
         $uEnc = [Uri]::EscapeDataString($ReolinkUser)
+        $rs   = Get-Random -Maximum 9999
 
-        # Snapshot-Endpunkte: HTTPS Port 443 → HTTPS HttpPort → HTTP HttpPort → HTTP Port 80
         $snapUrls = @(
-            "https://$IP/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "https://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "http://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "https://$IP/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "https://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "http://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
+            "https://$IP/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc",
+            "https://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc",
+            "http://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc",
+            "https://$IP/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc",
+            "https://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc",
+            "http://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$rs&user=$uEnc&password=$pEnc"
         )
+
+        # TLS-Downgrade: alte Reolink-Firmware nutzt TLS 1.0/1.1
+        $tlsAlt = [Net.ServicePointManager]::SecurityProtocol
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12 } catch {}
 
         foreach ($snapUri in $snapUrls) {
             if ($snapshotB64) { break }
@@ -132,7 +136,62 @@ function Check-Camera {
             catch {}
         }
 
+        # curl.exe-Fallback falls Invoke-WebRequest an TLS scheitert
+        if (-not $snapshotB64) {
+            $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+            if ($curlExe) {
+                $tmpFile = [System.IO.Path]::GetTempFileName()
+                foreach ($snapUri in $snapUrls) {
+                    if ($snapshotB64) { break }
+                    try {
+                        & curl.exe --silent --insecure --max-time 10 --output $tmpFile $snapUri 2>$null
+                        if (Test-Path $tmpFile) {
+                            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+                            if ($bytes.Length -gt 1000 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8) {
+                                $snapshotB64 = [Convert]::ToBase64String($bytes)
+                                $apiStatus   = "Snapshot OK (curl)"
+                            }
+                        }
+                    }
+                    catch {}
+                }
+                try { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        }
+
+        [Net.ServicePointManager]::SecurityProtocol = $tlsAlt
         if (-not $snapshotB64) { $apiStatus = "Snapshot fehlgeschlagen" }
+        $passKlar = $null
+    }
+
+    # ── INSTAR Snapshot (Basic Auth) ──────────────────────────────────────────
+    elseif ($Typ -eq "instar" -and $ReolinkPassSecure -and $httpOK) {
+        $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($ReolinkPassSecure)
+        $passKlar = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+
+        $b64Auth  = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${ReolinkUser}:${passKlar}"))
+        $authHdr  = @{ Authorization = "Basic $b64Auth" }
+
+        $instarUrls = @(
+            "http://${IP}:${HttpPort}/tmpfs/snap.jpg",
+            "http://${IP}:${HttpPort}/cgi-bin/hi3510/snap.cgi?&-getstream",
+            "http://${IP}:${HttpPort}/snap.cgi"
+        )
+
+        foreach ($snapUri in $instarUrls) {
+            if ($snapshotB64) { break }
+            try {
+                $r = Invoke-WebRequest -Uri $snapUri -Headers $authHdr -TimeoutSec 10 -ErrorAction Stop
+                if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
+                    $snapshotB64 = [Convert]::ToBase64String($r.Content)
+                    $apiStatus   = "Snapshot OK"
+                }
+            }
+            catch {}
+        }
+
+        if (-not $snapshotB64) { $apiStatus = "HTTP OK (kein Snapshot)" }
         $passKlar = $null
     }
     elseif ($Typ -eq "instar" -and $httpOK) {

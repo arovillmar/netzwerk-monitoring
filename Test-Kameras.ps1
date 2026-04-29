@@ -75,6 +75,10 @@ foreach ($K in $Kameras) {
     $snapUrlOK    = ""
     $snapErgebnis = @()
 
+    # TLS-Downgrade für alte Firmware (Reolink mit TLS 1.0/1.1)
+    $tlsAlt = [Net.ServicePointManager]::SecurityProtocol
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12 } catch {}
+
     if ($K.typ -eq "kamera_reolink" -and $reolinkPass -and $httpOK) {
         $rs   = Get-Random -Maximum 9999
         $uEnc = [Uri]::EscapeDataString($kamUser)
@@ -90,40 +94,104 @@ foreach ($K in $Kameras) {
         )
 
         foreach ($url in $testUrls) {
-            # URL für Anzeige kürzen (Passwort maskieren)
             $urlAnzeige = $url -replace "password=[^&]+", "password=***"
             try {
                 $r = Invoke-WebRequest -Uri $url -SkipCertificateCheck -TimeoutSec 8 -ErrorAction Stop
                 if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
                     $snapshotB64 = [Convert]::ToBase64String($r.Content)
                     $snapUrlOK   = $urlAnzeige
-                    $snapErgebnis += "    " + $urlAnzeige.PadRight(70).Substring(0,65) + " -> OK ($([Math]::Round($r.Content.Length/1024))KB)"
+                    $snapErgebnis += "    " + $urlAnzeige.Substring(0, [Math]::Min(65,$urlAnzeige.Length)).PadRight(65) + " -> OK ($([Math]::Round($r.Content.Length/1024))KB)"
                     break
                 }
                 else {
-                    $snapErgebnis += "    " + $urlAnzeige.PadRight(70).Substring(0,65) + " -> HTTP $($r.StatusCode) / kein Image"
+                    $snapErgebnis += "    " + $urlAnzeige.Substring(0, [Math]::Min(65,$urlAnzeige.Length)).PadRight(65) + " -> HTTP $($r.StatusCode) / kein Image"
                 }
             }
             catch {
-                $kurzFehler = $_.Exception.Message -replace '\(.*\)','' -replace 'The remote.*',''
-                $snapErgebnis += "    " + $urlAnzeige.PadRight(70).Substring(0,65) + " -> FEHLER: $($kurzFehler.Trim())"
+                $kurzFehler = $_.Exception.Message -replace '\(.*?\)','.' -replace '\s{2,}',' '
+                if ($kurzFehler.Length -gt 60) { $kurzFehler = $kurzFehler.Substring(0,60) + "..." }
+                $snapErgebnis += "    " + $urlAnzeige.Substring(0, [Math]::Min(65,$urlAnzeige.Length)).PadRight(65) + " -> FEHLER: $kurzFehler"
             }
         }
 
+        # curl.exe-Fallback wenn alle Invoke-WebRequest fehlschlugen
+        if (-not $snapshotB64) {
+            $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+            if ($curlExe) {
+                $tmpFile = [System.IO.Path]::GetTempFileName()
+                foreach ($url in $testUrls) {
+                    if ($snapshotB64) { break }
+                    $urlAnzeige = $url -replace "password=[^&]+", "password=***"
+                    try {
+                        & curl.exe --silent --insecure --max-time 10 --output $tmpFile $url 2>$null
+                        if (Test-Path $tmpFile) {
+                            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+                            if ($bytes.Length -gt 1000 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8) {
+                                $snapshotB64 = [Convert]::ToBase64String($bytes)
+                                $snapUrlOK   = "[curl] $urlAnzeige"
+                                $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> OK ($([Math]::Round($bytes.Length/1024))KB)"
+                            } else {
+                                $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> kein JPEG"
+                            }
+                        }
+                    }
+                    catch {}
+                }
+                try { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        }
+
+        foreach ($zeile in $snapErgebnis) {
+            $farbe = if ($zeile -match '-> OK') { "Green" } elseif ($zeile -match '-> FEHLER|kein JPEG') { "Red" } else { "Yellow" }
+            Write-Host $zeile -ForegroundColor $farbe
+        }
+    }
+    elseif ($K.typ -eq "kamera_instar" -and $httpOK) {
+        $instarPass = ""
+        if ($InstarPassSecure) {
+            $b = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($InstarPassSecure)
+            $instarPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($b)
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)
+        }
+        $b64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${kamUser}:${instarPass}"))
+        $authHdr = @{ Authorization = "Basic $b64Auth" }
+
+        $instarUrls = @(
+            "http://$($K.ip):$httpPort/tmpfs/snap.jpg",
+            "http://$($K.ip):$httpPort/cgi-bin/hi3510/snap.cgi?&-getstream",
+            "http://$($K.ip):$httpPort/snap.cgi"
+        )
+        foreach ($url in $instarUrls) {
+            $urlAnzeige = $url
+            try {
+                $r = Invoke-WebRequest -Uri $url -Headers $authHdr -TimeoutSec 8 -ErrorAction Stop
+                if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
+                    $snapshotB64 = [Convert]::ToBase64String($r.Content)
+                    $snapUrlOK   = $urlAnzeige
+                    $snapErgebnis += "    $urlAnzeige -> OK ($([Math]::Round($r.Content.Length/1024))KB)"
+                    break
+                } else {
+                    $snapErgebnis += "    $urlAnzeige -> HTTP $($r.StatusCode) / kein Image"
+                }
+            }
+            catch {
+                $snapErgebnis += "    $urlAnzeige -> FEHLER: $($_.Exception.Message.Substring(0,[Math]::Min(50,$_.Exception.Message.Length)))"
+            }
+        }
+        $instarPass = $null
         foreach ($zeile in $snapErgebnis) {
             $farbe = if ($zeile -match '-> OK') { "Green" } elseif ($zeile -match '-> FEHLER') { "Red" } else { "Yellow" }
             Write-Host $zeile -ForegroundColor $farbe
         }
     }
-    elseif ($K.typ -eq "kamera_instar") {
-        Write-Host "    Snapshot    : INSTAR – kein Snapshot implementiert" -ForegroundColor Gray
-    }
     elseif (-not $httpOK) {
         Write-Host "    Snapshot    : HTTP-Port nicht erreichbar – kein Test" -ForegroundColor Yellow
     }
-    elseif (-not $reolinkPass) {
-        Write-Host "    Snapshot    : Reolink-Passwort fehlt in credentials.json" -ForegroundColor Red
+    else {
+        Write-Host "    Snapshot    : Passwort fehlt in credentials.json" -ForegroundColor Red
     }
+
+    [Net.ServicePointManager]::SecurityProtocol = $tlsAlt
 
     if ($snapshotB64) {
         Write-Host "    SNAPSHOT    : OK  ($([Math]::Round($snapshotB64.Length * 0.75 / 1024)) KB)" -ForegroundColor Green
