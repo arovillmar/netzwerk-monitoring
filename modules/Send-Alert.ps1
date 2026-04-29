@@ -2,8 +2,9 @@ function Send-Alert {
     param(
         [Parameter(Mandatory)][ValidateSet("Alarm","Warnung","Tagesbericht","Entwarnung")]
         [string]$Typ,
-        [array]$Ergebnisse         = @(),
-        [PSCustomObject]$LoginResult = $null,
+        [array]$Ergebnisse           = @(),
+        [PSCustomObject]$LoginResult  = $null,
+        [PSCustomObject]$NtopngResult = $null,
         [PSCustomObject]$SmtpConfig,
         [System.Security.SecureString]$SmtpPass
     )
@@ -54,7 +55,7 @@ function Send-Alert {
         "Entwarnung"   { "✅ Heimnetz OK – Problem behoben [$($jetzt.ToString('HH:mm'))]" }
     }
 
-    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult
+    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult -NtopngResult $NtopngResult
 
     # SMTP senden
     try {
@@ -104,7 +105,8 @@ function New-AlertBody {
         [string]$Typ,
         [array]$Ergebnisse,
         [string]$Zeitstempel,
-        [PSCustomObject]$LoginResult = $null
+        [PSCustomObject]$LoginResult  = $null,
+        [PSCustomObject]$NtopngResult = $null
     )
 
     $relevante = switch ($Typ) {
@@ -212,6 +214,34 @@ function New-AlertBody {
 "@
     }
 
+    # ntopng Sektion – aktive externe Verbindungen
+    $ntopngSektionHtml = ""
+    if ($NtopngResult) {
+        $ntopStatusFarbe = if ($NtopngResult.Status -eq "FEHLER") { "#f85149" } else { "#3fb950" }
+        $ntopngZeilenHtml = ""
+        if ($NtopngResult.ExterneFlows -and $NtopngResult.ExterneFlows.Count -gt 0) {
+            foreach ($flow in $NtopngResult.ExterneFlows) {
+                $appText  = if ($flow.App) { $flow.App } else { $flow.Protokoll }
+                $bytesText = if ($flow.Bytes -gt 1MB) { "$([math]::Round($flow.Bytes/1MB,1)) MB" }
+                             elseif ($flow.Bytes -gt 1KB) { "$([math]::Round($flow.Bytes/1KB,1)) KB" }
+                             else { "$($flow.Bytes) B" }
+                $ntopngZeilenHtml += "<tr><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($flow.ExterneIP)</td><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($flow.InternIP)</td><td style='padding:5px 8px;font-size:0.82em;border-bottom:1px solid #21262d;'>$appText :$($flow.Port)</td><td style='padding:5px 8px;font-size:0.82em;color:#8b949e;border-bottom:1px solid #21262d;'>$bytesText</td></tr>"
+            }
+        }
+        $ntopngTabelleHtml = if ($ntopngZeilenHtml) { @"
+    <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;font-size:0.85em;'>
+      <thead><tr style='background:#21262d;'><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Externe IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Interne IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>App / Port</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Daten</th></tr></thead>
+      <tbody>$ntopngZeilenHtml</tbody>
+    </table>
+"@ } else { "<p style='color:#8b949e;font-size:0.85em;'>Keine aktiven externen Verbindungen.</p>" }
+
+        $ntopngSektionHtml = @"
+    <h2 style='color:#58a6ff;font-size:1em;margin:24px 0 8px;'>ntopng – Aktive externe Verbindungen</h2>
+    <p style='color:$ntopStatusFarbe;font-size:0.9em;margin-bottom:8px;'>$($NtopngResult.Info)</p>
+    $ntopngTabelleHtml
+"@
+    }
+
     return @"
 <!DOCTYPE html>
 <html>
@@ -237,6 +267,7 @@ function New-AlertBody {
       </tbody>
     </table>
     $loginSektionHtml
+    $ntopngSektionHtml
     $snapshotSektionHtml
     <p style='color:#8b949e;font-size:0.85em;margin-top:20px;'>
       Heimnetz Monitor v2.0 | Automatisch generiert am $Zeitstempel

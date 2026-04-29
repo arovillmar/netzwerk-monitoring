@@ -93,6 +93,7 @@ if (Test-Path $CredPfad) {
             MailstoreWinPass = (ConvertTo-SecureStringSafe $CredRaw.mailstore_win_pass)
             ReolinkPass      = (ConvertTo-SecureStringSafe $CredRaw.reolink_pass)
             InstarPass       = (ConvertTo-SecureStringSafe $CredRaw.instar_pass)
+            NtopngPass       = (ConvertTo-SecureStringSafe $CredRaw.ntopng_pass)
         }
     }
     catch {
@@ -125,7 +126,8 @@ if ($Geraet -ne "") {
 }
 
 # ── Haupt-Check-Schleife ─────────────────────────────────────────────────────
-$AlleErgebnisse = @()
+$AlleErgebnisse  = @()
+$script:NtopngResult = $null
 Write-Host ""
 Write-Host "  Heimnetz Monitor v$VersionInfo – Start: $($StartZeit.ToString('dd.MM.yyyy HH:mm:ss'))" -ForegroundColor Cyan
 Write-Host "  $($GeraeteListe.Count) Geraete werden geprueft..." -ForegroundColor Gray
@@ -185,9 +187,11 @@ foreach ($G in $GeraeteListe) {
                     $details   = $piholeResult
                 }
                 if ($G.checks -contains "ntopng_api") {
-                    $ntopResult = Check-NtopngAPI -IP $G.ip
+                    $ntopngPass = if ($Creds) { $Creds.NtopngPass } else { $null }
+                    $ntopResult = Check-NtopngAPI -IP $G.ip -PassSecure $ntopngPass
                     if ($ntopResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
-                    $checkInfo += " | ntopng/:3000 $($ntopResult.Status)"
+                    $checkInfo += " | ntopng/:3000 $($ntopResult.Status) ($($ntopResult.AnzahlExtern) ext.)"
+                    $script:NtopngResult = $ntopResult
                 }
             }
 
@@ -329,17 +333,17 @@ if (-not $TaskScheduler) {
 
 # ── Alerts senden ─────────────────────────────────────────────────────────────
 if ($Creds -and $Config.einstellungen.alarm_bei_fehler -and $AnzahlFehler -gt 0) {
-    Send-Alert -Typ "Alarm" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Alarm" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -NtopngResult $script:NtopngResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 elseif ($Creds -and $Config.einstellungen.alarm_bei_warnung -and $AnzahlWarn -gt 0) {
-    Send-Alert -Typ "Warnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Warnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -NtopngResult $script:NtopngResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 elseif ($Creds -and $AnzahlFehler -eq 0 -and $AnzahlWarn -eq 0) {
-    Send-Alert -Typ "Entwarnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Entwarnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -NtopngResult $script:NtopngResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 
 if ($Creds -and $Tagesbericht) {
-    Send-Alert -Typ "Tagesbericht" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Tagesbericht" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -NtopngResult $script:NtopngResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 
 # ── GitHub Push ───────────────────────────────────────────────────────────────

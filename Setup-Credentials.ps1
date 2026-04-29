@@ -90,6 +90,7 @@ $alt_mailstore    = if ($bestehend) { $bestehend.mailstore_pass    } else { "" }
 $alt_mailstore_win = if ($bestehend) { $bestehend.mailstore_win_pass } else { "" }
 $alt_reolink      = if ($bestehend) { $bestehend.reolink_pass      } else { "" }
 $alt_instar       = if ($bestehend) { $bestehend.instar_pass       } else { "" }
+$alt_ntopng       = if ($bestehend) { $bestehend.ntopng_pass       } else { "" }
 
 # Status-Uebersicht anzeigen
 Write-Host "  Aktueller Status:" -ForegroundColor White
@@ -101,6 +102,7 @@ Write-Host "  $(Get-Status $alt_mailstore)     [5] Mailstore APP Admin-Passwort"
 Write-Host "  $(Get-Status $alt_mailstore_win) [6] Mailstore VM Windows-Passwort" -ForegroundColor $(if ((Get-Status $alt_mailstore_win) -eq "[GESETZT]") { "Green" } else { "Yellow" })
 Write-Host "  $(Get-Status $alt_reolink)       [7] Reolink Kamera Passwort" -ForegroundColor $(if ((Get-Status $alt_reolink) -eq "[GESETZT]") { "Green" } else { "Yellow" })
 Write-Host "  $(Get-Status $alt_instar)        [8] INSTAR Kamera Passwort" -ForegroundColor $(if ((Get-Status $alt_instar) -eq "[GESETZT]") { "Green" } else { "Yellow" })
+Write-Host "  $(Get-Status $alt_ntopng)        [9] ntopng Passwort (Raspberry Pi 5)" -ForegroundColor $(if ((Get-Status $alt_ntopng) -eq "[GESETZT]") { "Green" } else { "Yellow" })
 Write-Host ""
 Write-Host "  Jetzt Passwoerter eingeben (Enter = unveraendert):" -ForegroundColor Cyan
 Write-Host ""
@@ -146,9 +148,14 @@ try {
         -BestehenderWert $alt_reolink
 
     $neu_instar = Read-Passwort `
-        -Bezeichnung "[8/8] INSTAR Kamera Passwort" `
+        -Bezeichnung "[8/9] INSTAR Kamera Passwort" `
         -Hinweis     "Benutzer: admin | gilt fuer alle INSTAR-Kameras" `
         -BestehenderWert $alt_instar
+
+    $neu_ntopng = Read-Passwort `
+        -Bezeichnung "[9/9] ntopng Passwort" `
+        -Hinweis     "Benutzer: admin | IP: 192.168.80.20 | Port: 3000" `
+        -BestehenderWert $alt_ntopng
 
     # Speichern
     $credentials = [PSCustomObject]@{
@@ -160,6 +167,7 @@ try {
         mailstore_win_pass = $neu_mailstore_win
         reolink_pass       = $neu_reolink
         instar_pass        = $neu_instar
+        ntopng_pass        = $neu_ntopng
         erstellt_am        = (Get-Date).ToString("dd.MM.yyyy HH:mm:ss")
         erstellt_auf       = $env:COMPUTERNAME
     }
@@ -178,6 +186,7 @@ try {
     Write-Host "  $(Get-Status $neu_mailstore_win) [6] Mailstore VM Windows-Passwort" -ForegroundColor $(if ((Get-Status $neu_mailstore_win) -eq "[GESETZT]") { "Green" } else { "Yellow" })
     Write-Host "  $(Get-Status $neu_reolink)       [7] Reolink Kamera Passwort" -ForegroundColor $(if ((Get-Status $neu_reolink) -eq "[GESETZT]") { "Green" } else { "Yellow" })
     Write-Host "  $(Get-Status $neu_instar)        [8] INSTAR Kamera Passwort" -ForegroundColor $(if ((Get-Status $neu_instar) -eq "[GESETZT]") { "Green" } else { "Yellow" })
+    Write-Host "  $(Get-Status $neu_ntopng)        [9] ntopng Passwort" -ForegroundColor $(if ((Get-Status $neu_ntopng) -eq "[GESETZT]") { "Green" } else { "Yellow" })
     Write-Host ""
 
     $fehlend = @()
@@ -189,13 +198,14 @@ try {
     if ((Get-Status $neu_mailstore_win) -ne "[GESETZT]") { $fehlend += "Mailstore-Windows" }
     if ((Get-Status $neu_reolink)       -ne "[GESETZT]") { $fehlend += "Reolink" }
     if ((Get-Status $neu_instar)        -ne "[GESETZT]") { $fehlend += "INSTAR" }
+    if ((Get-Status $neu_ntopng)        -ne "[GESETZT]") { $fehlend += "ntopng" }
 
     if ($fehlend.Count -gt 0) {
         Write-Host "  Noch fehlend: $($fehlend -join ', ')" -ForegroundColor Yellow
         Write-Host "  Skript erneut ausfuehren wenn Passwoerter bereit sind." -ForegroundColor Gray
     }
     else {
-        Write-Host "  Alle 8 Passwoerter gesetzt!" -ForegroundColor Green
+        Write-Host "  Alle 9 Passwoerter gesetzt!" -ForegroundColor Green
         Write-Host "  Naechster Schritt: .\Setup-Task.ps1 (als Administrator)" -ForegroundColor Cyan
     }
     Write-Host ""
