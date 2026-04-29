@@ -130,11 +130,12 @@ foreach ($K in $Kameras) {
                                 $snapshotB64 = [Convert]::ToBase64String($bytes)
                                 $snapUrlOK   = "[curl] $urlAnzeige"
                                 $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> OK ($([Math]::Round($bytes.Length/1024))KB)"
-                            } else {
-                                # Antwort als Text zeigen (Diagnose)
+                            } elseif ($bytes.Length -gt 20) {
+                                # Antwort als Text zeigen (Diagnose), aber weitermachen
                                 $antwortText = [System.Text.Encoding]::UTF8.GetString($bytes, 0, [Math]::Min(200, $bytes.Length)) -replace '\r?\n',' '
                                 $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> kein JPEG: $antwortText"
-                                break  # erste Antwort zeigen reicht zur Diagnose
+                            } else {
+                                $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> leer (Port geschlossen?)"
                             }
                         }
                     }
@@ -187,7 +188,13 @@ foreach ($K in $Kameras) {
             $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
             if ($curlExe) {
                 $tmpFile = [System.IO.Path]::GetTempFileName()
-                foreach ($url in $instarUrls) {
+                # /snap.cgi zuerst (hat 401 geliefert = Endpunkt existiert)
+                $instarDigestUrls = @(
+                    "http://$($K.ip):$httpPort/snap.cgi",
+                    "http://$($K.ip):$httpPort/tmpfs/snap.jpg",
+                    "http://$($K.ip):$httpPort/cgi-bin/hi3510/snap.cgi?&-getstream"
+                )
+                foreach ($url in $instarDigestUrls) {
                     if ($snapshotB64) { break }
                     try {
                         & curl.exe --silent --digest --user "${kamUser}:${instarPass}" --max-time 10 --output $tmpFile $url 2>$null
@@ -197,10 +204,11 @@ foreach ($K in $Kameras) {
                                 $snapshotB64 = [Convert]::ToBase64String($bytes)
                                 $snapUrlOK   = "[curl-digest] $url"
                                 $snapErgebnis += "    [Digest] $url -> OK ($([Math]::Round($bytes.Length/1024))KB)"
-                            } else {
-                                $antwortText = [System.Text.Encoding]::UTF8.GetString($bytes,0,[Math]::Min(150,$bytes.Length)) -replace '\r?\n',' '
+                            } elseif ($bytes.Length -gt 20) {
+                                $antwortText = [System.Text.Encoding]::UTF8.GetString($bytes,0,[Math]::Min(200,$bytes.Length)) -replace '\r?\n',' '
                                 $snapErgebnis += "    [Digest] $url -> kein JPEG: $antwortText"
-                                break
+                            } else {
+                                $snapErgebnis += "    [Digest] $url -> leer"
                             }
                         }
                     }
