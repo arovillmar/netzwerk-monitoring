@@ -131,7 +131,10 @@ foreach ($K in $Kameras) {
                                 $snapUrlOK   = "[curl] $urlAnzeige"
                                 $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> OK ($([Math]::Round($bytes.Length/1024))KB)"
                             } else {
-                                $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> kein JPEG"
+                                # Antwort als Text zeigen (Diagnose)
+                                $antwortText = [System.Text.Encoding]::UTF8.GetString($bytes, 0, [Math]::Min(200, $bytes.Length)) -replace '\r?\n',' '
+                                $snapErgebnis += "    [curl] " + $urlAnzeige.Substring(0,[Math]::Min(55,$urlAnzeige.Length)).PadRight(55) + " -> kein JPEG: $antwortText"
+                                break  # erste Antwort zeigen reicht zur Diagnose
                             }
                         }
                     }
@@ -161,21 +164,49 @@ foreach ($K in $Kameras) {
             "http://$($K.ip):$httpPort/cgi-bin/hi3510/snap.cgi?&-getstream",
             "http://$($K.ip):$httpPort/snap.cgi"
         )
+        # Basic Auth Versuch
         foreach ($url in $instarUrls) {
-            $urlAnzeige = $url
+            if ($snapshotB64) { break }
             try {
                 $r = Invoke-WebRequest -Uri $url -Headers $authHdr -TimeoutSec 8 -ErrorAction Stop
                 if ($r.StatusCode -eq 200 -and $r.Headers['Content-Type'] -match 'image') {
                     $snapshotB64 = [Convert]::ToBase64String($r.Content)
-                    $snapUrlOK   = $urlAnzeige
-                    $snapErgebnis += "    $urlAnzeige -> OK ($([Math]::Round($r.Content.Length/1024))KB)"
-                    break
+                    $snapUrlOK   = $url
+                    $snapErgebnis += "    [Basic] $url -> OK ($([Math]::Round($r.Content.Length/1024))KB)"
                 } else {
-                    $snapErgebnis += "    $urlAnzeige -> HTTP $($r.StatusCode) / kein Image"
+                    $snapErgebnis += "    [Basic] $url -> HTTP $($r.StatusCode)"
                 }
             }
             catch {
-                $snapErgebnis += "    $urlAnzeige -> FEHLER: $($_.Exception.Message.Substring(0,[Math]::Min(50,$_.Exception.Message.Length)))"
+                $statusCode = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+                $snapErgebnis += "    [Basic] $url -> FEHLER HTTP $statusCode"
+            }
+        }
+        # Digest Auth Fallback via curl.exe (viele INSTAR-Modelle nutzen Digest)
+        if (-not $snapshotB64) {
+            $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+            if ($curlExe) {
+                $tmpFile = [System.IO.Path]::GetTempFileName()
+                foreach ($url in $instarUrls) {
+                    if ($snapshotB64) { break }
+                    try {
+                        & curl.exe --silent --digest --user "${kamUser}:${instarPass}" --max-time 10 --output $tmpFile $url 2>$null
+                        if (Test-Path $tmpFile) {
+                            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+                            if ($bytes.Length -gt 500 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8) {
+                                $snapshotB64 = [Convert]::ToBase64String($bytes)
+                                $snapUrlOK   = "[curl-digest] $url"
+                                $snapErgebnis += "    [Digest] $url -> OK ($([Math]::Round($bytes.Length/1024))KB)"
+                            } else {
+                                $antwortText = [System.Text.Encoding]::UTF8.GetString($bytes,0,[Math]::Min(150,$bytes.Length)) -replace '\r?\n',' '
+                                $snapErgebnis += "    [Digest] $url -> kein JPEG: $antwortText"
+                                break
+                            }
+                        }
+                    }
+                    catch {}
+                }
+                try { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue } catch {}
             }
         }
         $instarPass = $null
