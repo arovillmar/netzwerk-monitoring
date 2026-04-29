@@ -110,10 +110,10 @@ function Check-Camera {
         $pEnc = [Uri]::EscapeDataString($passKlar)
         $uEnc = [Uri]::EscapeDataString($ReolinkUser)
 
-        # Snapshot-Endpunkte (neuere Firmware: GET mit user/password in URL)
+        # Snapshot-Endpunkte (neuere Firmware: GET mit user/password in URL, Port explizit angeben)
         $snapUrls = @(
-            "https://$IP/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
-            "https://$IP/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
+            "https://${IP}:${HttpPort}/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc",
+            "https://${IP}:${HttpPort}/api.cgi?cmd=Snap&channel=0&rs=$((Get-Random -Maximum 9999))&user=$uEnc&password=$pEnc"
         )
 
         foreach ($snapUri in $snapUrls) {
