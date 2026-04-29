@@ -199,9 +199,11 @@ foreach ($G in $GeraeteListe) {
                     if ($nasResult.Status -eq "WARNUNG") { $checkStatus = "WARNUNG" }
                     $checkInfo = "SSH/:$($G.ssh_port) | $($nasResult.Info)"
                 }
-                if ($G.docker -eq $true -and $Creds -and $checkStatus -ne "FEHLER") {
+                if ($G.docker -eq $true -and $checkStatus -ne "FEHLER") {
                     $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user
                     if ($dockerResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
+                    $checkInfo += " | Docker: $($dockerResult.Container_Name) ($($dockerResult.Container_Status))"
+                    if ($details) { Add-Member -InputObject $details -MemberType NoteProperty -Name "Docker" -Value $dockerResult -Force }
                 }
             }
 
@@ -324,17 +326,17 @@ if (-not $TaskScheduler) {
 
 # ── Alerts senden ─────────────────────────────────────────────────────────────
 if ($Creds -and $Config.einstellungen.alarm_bei_fehler -and $AnzahlFehler -gt 0) {
-    Send-Alert -Typ "Alarm" -Ergebnisse $AlleErgebnisse -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Alarm" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 elseif ($Creds -and $Config.einstellungen.alarm_bei_warnung -and $AnzahlWarn -gt 0) {
-    Send-Alert -Typ "Warnung" -Ergebnisse $AlleErgebnisse -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Warnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 elseif ($Creds -and $AnzahlFehler -eq 0 -and $AnzahlWarn -eq 0) {
-    Send-Alert -Typ "Entwarnung" -Ergebnisse $AlleErgebnisse -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Entwarnung" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 
 if ($Creds -and $Tagesbericht) {
-    Send-Alert -Typ "Tagesbericht" -Ergebnisse $AlleErgebnisse -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
+    Send-Alert -Typ "Tagesbericht" -Ergebnisse $AlleErgebnisse -LoginResult $LoginResult -SmtpConfig $Config.einstellungen -SmtpPass $Creds.SmtpPass
 }
 
 # ── GitHub Push ───────────────────────────────────────────────────────────────

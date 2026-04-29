@@ -2,7 +2,8 @@ function Send-Alert {
     param(
         [Parameter(Mandatory)][ValidateSet("Alarm","Warnung","Tagesbericht","Entwarnung")]
         [string]$Typ,
-        [array]$Ergebnisse    = @(),
+        [array]$Ergebnisse         = @(),
+        [PSCustomObject]$LoginResult = $null,
         [PSCustomObject]$SmtpConfig,
         [System.Security.SecureString]$SmtpPass
     )
@@ -53,7 +54,7 @@ function Send-Alert {
         "Entwarnung"   { "✅ Heimnetz OK – Problem behoben [$($jetzt.ToString('HH:mm'))]" }
     }
 
-    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr
+    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult
 
     # SMTP senden
     try {
@@ -102,7 +103,8 @@ function New-AlertBody {
     param(
         [string]$Typ,
         [array]$Ergebnisse,
-        [string]$Zeitstempel
+        [string]$Zeitstempel,
+        [PSCustomObject]$LoginResult = $null
     )
 
     $relevante = switch ($Typ) {
@@ -147,6 +149,34 @@ function New-AlertBody {
         "Entwarnung"   { "Problem behoben – Alles OK" }
     }
 
+    # Login-Sektion aufbauen
+    $loginSektionHtml = ""
+    if ($LoginResult) {
+        $loginStatusFarbe = if ($LoginResult.Warnung) { "#f85149" } else { "#3fb950" }
+        $loginSummary = "$($LoginResult.Info)"
+        $loginZeilenHtml = ""
+        if ($LoginResult.Eintraege -and $LoginResult.Eintraege.Count -gt 0) {
+            foreach ($eintrag in $LoginResult.Eintraege) {
+                $eFarbe = switch -Regex ($eintrag.Ergebnis) {
+                    "Fehlversuch" { "#f85149" }
+                    "Erfolg"      { "#3fb950" }
+                    default       { "#8b949e" }
+                }
+                $loginZeilenHtml += "<tr><td style='padding:5px 8px;font-size:0.82em;color:#8b949e;border-bottom:1px solid #21262d;'>$($eintrag.Zeitstempel)</td><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($eintrag.QuellIP)</td><td style='padding:5px 8px;font-size:0.82em;border-bottom:1px solid #21262d;'>$($eintrag.Zielgeraet)</td><td style='padding:5px 8px;font-size:0.82em;color:$eFarbe;border-bottom:1px solid #21262d;'>$($eintrag.Ergebnis)</td></tr>"
+            }
+        }
+        $loginSektionHtml = @"
+    <h2 style='color:#58a6ff;font-size:1em;margin:24px 0 8px;'>Externe Zugriffe – Letzte 24h</h2>
+    <p style='color:$loginStatusFarbe;font-size:0.9em;margin-bottom:8px;'>$loginSummary</p>
+    $(if ($loginZeilenHtml) { @"
+    <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;font-size:0.85em;'>
+      <thead><tr style='background:#21262d;'><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zeit</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Von IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zielgerät</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Ergebnis</th></tr></thead>
+      <tbody>$loginZeilenHtml</tbody>
+    </table>
+"@ })
+"@
+    }
+
     return @"
 <!DOCTYPE html>
 <html>
@@ -171,8 +201,9 @@ function New-AlertBody {
         $tabellenZeilen
       </tbody>
     </table>
+    $loginSektionHtml
     <p style='color:#8b949e;font-size:0.85em;margin-top:20px;'>
-      Heimnetz Monitor v1.0 | Automatisch generiert am $Zeitstempel
+      Heimnetz Monitor v2.0 | Automatisch generiert am $Zeitstempel
     </p>
   </div>
 </body>

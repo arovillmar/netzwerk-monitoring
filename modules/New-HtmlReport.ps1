@@ -120,6 +120,13 @@ function New-HtmlReport {
                     if ($d.Uptime -and $d.Uptime -ne "n/a") {
                         $detailHtml += "<p style='color:#8b949e;font-size:0.85em;margin:6px 0;'>Uptime: <span style='color:#e6edf3;'>$($d.Uptime)</span></p>"
                     }
+                    if ($d.Docker) {
+                        $dok    = $d.Docker
+                        $dFarbe = switch ($dok.Status) { "OK" { "#3fb950" } "WARNUNG" { "#d29922" } default { "#f85149" } }
+                        $uptimeStr = if ($dok.Container_Uptime -and $dok.Container_Uptime -ne "n/a") { " <span style='color:#6e7681;font-size:0.85em;'>(seit $($dok.Container_Uptime))</span>" } else { "" }
+                        $portStr   = if ($dok.Port_Mapping -and $dok.Port_Mapping -ne "n/a")         { " <span style='color:#6e7681;font-size:0.85em;'>Port $($dok.Port_Mapping)</span>" } else { "" }
+                        $detailHtml += "<div style='margin-top:8px;font-size:0.88em;padding:6px 10px;background:#21262d;border-radius:5px;'>&#x1F433; Docker: <span style='color:$dFarbe;font-weight:bold;'>$($dok.Container_Name)</span> <span style='color:#8b949e;'>$($dok.Container_Status)</span>$uptimeStr$portStr <span style='color:$dFarbe;font-weight:bold;margin-left:8px;'>$($dok.Status)</span></div>"
+                    }
                 }
                 "mailstore" {
                     $detailHtml += "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:0.88em;'>"
