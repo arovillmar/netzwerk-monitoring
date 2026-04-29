@@ -316,15 +316,16 @@
       "aktiv": true,
       "cam_user": "admin",
       "rtsp_port": 554,
-      "http_port": 8080,
+      "http_port": 8011,
+      "https_port": 4430,
       "rtsp_url": "rtsp://192.168.80.67:554/11",
       "checks": [
         "ping",
         "rtsp_554",
-        "http_8080",
+        "http_8011",
         "stream_check"
       ],
-      "info": "INSTAR Kamera 1."
+      "info": "INSTAR Kamera 1. HTTP:8011, HTTPS:4430, RTSP:554+1554."
     },
     {
       "id": 18,

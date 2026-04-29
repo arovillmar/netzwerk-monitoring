@@ -164,21 +164,22 @@ function Check-Camera {
         $passKlar = $null
     }
 
-    # ── INSTAR Snapshot (Basic Auth) ──────────────────────────────────────────
+    # ── INSTAR Snapshot (Basic Auth → Digest via curl) ────────────────────────
     elseif ($Typ -eq "instar" -and $ReolinkPassSecure -and $httpOK) {
         $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($ReolinkPassSecure)
         $passKlar = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
-        $b64Auth  = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${ReolinkUser}:${passKlar}"))
-        $authHdr  = @{ Authorization = "Basic $b64Auth" }
+        $b64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${ReolinkUser}:${passKlar}"))
+        $authHdr = @{ Authorization = "Basic $b64Auth" }
 
         $instarUrls = @(
             "http://${IP}:${HttpPort}/tmpfs/snap.jpg",
-            "http://${IP}:${HttpPort}/cgi-bin/hi3510/snap.cgi?&-getstream",
-            "http://${IP}:${HttpPort}/snap.cgi"
+            "http://${IP}:${HttpPort}/snap.cgi",
+            "http://${IP}:${HttpPort}/cgi-bin/snapshot.cgi"
         )
 
+        # Basic Auth Versuch
         foreach ($snapUri in $instarUrls) {
             if ($snapshotB64) { break }
             try {
@@ -189,6 +190,29 @@ function Check-Camera {
                 }
             }
             catch {}
+        }
+
+        # Digest Auth via curl.exe als Fallback
+        if (-not $snapshotB64) {
+            $curlExe = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+            if ($curlExe) {
+                $tmpFile = [System.IO.Path]::GetTempFileName()
+                foreach ($snapUri in $instarUrls) {
+                    if ($snapshotB64) { break }
+                    try {
+                        & curl.exe --silent --digest --user "${ReolinkUser}:${passKlar}" --max-time 10 --output $tmpFile $snapUri 2>$null
+                        if (Test-Path $tmpFile) {
+                            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+                            if ($bytes.Length -gt 500 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8) {
+                                $snapshotB64 = [Convert]::ToBase64String($bytes)
+                                $apiStatus   = "Snapshot OK (Digest)"
+                            }
+                        }
+                    }
+                    catch {}
+                }
+                try { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue } catch {}
+            }
         }
 
         if (-not $snapshotB64) { $apiStatus = "HTTP OK (kein Snapshot)" }
