@@ -1,4 +1,4 @@
-function Check-Camera {
+﻿function Check-Camera {
     param(
         [Parameter(Mandatory)][string]$IP,
         [Parameter(Mandatory)][ValidateSet("reolink","instar")][string]$Typ,

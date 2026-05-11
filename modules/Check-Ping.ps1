@@ -1,19 +1,25 @@
-function Check-Ping {
+﻿function Check-Ping {
     param(
         [Parameter(Mandatory)][string]$IP,
         [int]$TimeoutMs = 1000
     )
 
     try {
-        $timeoutSec = [Math]::Max(1, [Math]::Ceiling($TimeoutMs / 1000))
-        $ping = Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds $timeoutSec -ErrorAction Stop
+        $pinger = New-Object System.Net.NetworkInformation.Ping
+        $result  = $pinger.Send($IP, $TimeoutMs)
 
-        $latenz = if ($ping.Latency) { $ping.Latency } else { 0 }
-
-        return [PSCustomObject]@{
-            Status    = "OK"
-            Latenz_ms = $latenz
-            Info      = "Erreichbar"
+        if ($result.Status -eq 'Success') {
+            return [PSCustomObject]@{
+                Status    = "OK"
+                Latenz_ms = $result.RoundtripTime
+                Info      = "Erreichbar"
+            }
+        } else {
+            return [PSCustomObject]@{
+                Status    = "FEHLER"
+                Latenz_ms = 9999
+                Info      = "Nicht erreichbar: $($result.Status)"
+            }
         }
     }
     catch {

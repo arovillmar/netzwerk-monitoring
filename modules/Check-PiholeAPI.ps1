@@ -1,4 +1,4 @@
-function Check-PiholeAPI {
+﻿function Check-PiholeAPI {
     param(
         [string]$IP                                        = "192.168.80.20",
         [System.Security.SecureString]$PassSecure          = $null

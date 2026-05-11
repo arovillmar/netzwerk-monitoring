@@ -1,4 +1,4 @@
-function Check-SMA {
+﻿function Check-SMA {
     param(
         [string]$IP            = "192.168.80.49",
         [int]$SpeedwirePort    = 9522

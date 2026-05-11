@@ -1,4 +1,4 @@
-function Check-MailstoreAPI {
+﻿function Check-MailstoreAPI {
     param(
         [string]$IP                                          = "192.168.80.120",
         [string]$User                                        = "admin",

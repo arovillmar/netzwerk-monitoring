@@ -1,4 +1,4 @@
-function Check-Docker {
+﻿function Check-Docker {
     param(
         [string]$IP                = "192.168.80.206",
         [int]$SSHPort              = 822,

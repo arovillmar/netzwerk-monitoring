@@ -1,4 +1,4 @@
-function Check-EmailDelivery {
+﻿function Check-EmailDelivery {
     param(
         [Parameter(Mandatory)][string]$SmtpHost,
         [Parameter(Mandatory)][int]$SmtpPort,

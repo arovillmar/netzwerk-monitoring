@@ -1,4 +1,4 @@
-function Check-ELWA {
+﻿function Check-ELWA {
     param(
         [string]$IP      = "192.168.80.122",
         [int]$TempMax    = 75

@@ -1,4 +1,4 @@
-function Push-GitCommit {
+﻿function Push-GitCommit {
     param(
         [Parameter(Mandatory)][string]$Beschreibung
     )

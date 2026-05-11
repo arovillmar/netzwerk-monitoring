@@ -1,4 +1,4 @@
-function Check-Powerline {
+﻿function Check-Powerline {
     param(
         [Parameter(Mandatory)][string]$IP,
         [string]$FritzBoxIP = "192.168.80.1"

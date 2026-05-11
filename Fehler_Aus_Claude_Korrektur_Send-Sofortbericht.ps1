@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 Set-StrictMode -Off
 $ErrorActionPreference = "Continue"
 
@@ -35,7 +35,7 @@ $Creds = [PSCustomObject]@{
 }
 
 if (-not $Creds.SmtpPass) {
-    Write-Host "FEHLER: SMTP-Passwort fehlt – E-Mail kann nicht versendet werden." -ForegroundColor Red
+    Write-Host "FEHLER: SMTP-Passwort fehlt - E-Mail kann nicht versendet werden." -ForegroundColor Red
     exit 1
 }
 
@@ -52,7 +52,7 @@ $script:NtopngResult = $null
 
 Clear-Host
 Write-Host ""
-Write-Host "  Sofortbericht – $($StartZeit.ToString('dd.MM.yyyy HH:mm:ss'))" -ForegroundColor Cyan
+Write-Host "  Sofortbericht - $($StartZeit.ToString('dd.MM.yyyy HH:mm:ss'))" -ForegroundColor Cyan
 Write-Host "  $($GeraeteListe.Count) Geraete werden geprueft..." -ForegroundColor Gray
 Write-Host ""
 
@@ -64,7 +64,7 @@ foreach ($G in $GeraeteListe) {
 
     try {
         $pingResult = $null
-        if ($G.checks -contains "ping" -and $G.ip -ne "SPAETER_NACHTRAGEN" -and $G.ip -ne "SPAETER_NACHTRAGEN") {
+        if ($G.checks -contains "ping" -and $G.ip -ne "SPAETER_NACHTRAGEN") {
             $pingResult = Check-Ping -IP $G.ip -TimeoutMs $Config.einstellungen.ping_timeout_ms
             if ($pingResult.Status -eq "FEHLER") { $checkStatus = "FEHLER"; $checkInfo = "Kein Ping" }
         }
@@ -104,13 +104,16 @@ foreach ($G in $GeraeteListe) {
                     $checkInfo = "SSH/:$($G.ssh_port) | $($nasResult.Info)"
                 }
                 if ($G.docker -eq $true -and $checkStatus -ne "FEHLER") {
-                    $dContainers = if ($G.docker_containers) { $G.docker_containers } else { @() }
-                    $dPort       = if ($G.docker_port)       { [int]$G.docker_port }  else { 3000 }
-                    $dApp        = if ($G.docker_pfad)       { Split-Path $G.docker_pfad -Leaf } else { "docker" }
-                    $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user -Containers $dContainers -DockerPort $dPort -AppName $dApp
+                    $dContainers  = if ($G.docker_containers) { $G.docker_containers } else { @() }
+                    $dPort        = if ($G.docker_port)       { [int]$G.docker_port }  else { 3000 }
+                    $dApp         = if ($G.docker_pfad)       { Split-Path $G.docker_pfad -Leaf } else { "docker" }
+                    $dockerResult = Check-Docker -IP $G.ip -SSHPort $G.ssh_port -SSHUser $G.ssh_user `
+                                        -Containers $dContainers -DockerPort $dPort -AppName $dApp
                     if ($dockerResult.Status -ne "OK" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
                     $checkInfo += " | $($dockerResult.Info)"
-                    if ($details) { Add-Member -InputObject $details -MemberType NoteProperty -Name "Docker" -Value $dockerResult -Force }
+                    if ($details) {
+                        Add-Member -InputObject $details -MemberType NoteProperty -Name "Docker" -Value $dockerResult -Force
+                    }
                 }
             }
             "windows_host" {
@@ -215,14 +218,14 @@ $smtp        = $Config.einstellungen
 $gesamtStatus = if ($AnzahlFehler -gt 0) { "FEHLER" } elseif ($AnzahlWarn -gt 0) { "WARNUNG" } else { "OK" }
 $bannerFarbe  = switch ($gesamtStatus) { "FEHLER" { "#f85149" } "WARNUNG" { "#d29922" } default { "#3fb950" } }
 $bannerText   = switch ($gesamtStatus) {
-    "FEHLER"  { "ALARM – $AnzahlFehler Fehler erkannt!" }
-    "WARNUNG" { "ACHTUNG – $AnzahlWarn Warnungen" }
-    default   { "Alles OK – Alle $AnzahlOK Geraete erreichbar" }
+    "FEHLER"  { "ALARM - $AnzahlFehler Fehler erkannt!" }
+    "WARNUNG" { "ACHTUNG - $AnzahlWarn Warnungen" }
+    default   { "Alles OK - Alle $AnzahlOK Geraete erreichbar" }
 }
 
 # Kamera-Snapshots sammeln
 $snapshotHtml = ""
-$kameras = $AlleErgebnisse | Where-Object { $_.Typ -in @("kamera_reolink","kamera_instar") }
+$kameras      = $AlleErgebnisse | Where-Object { $_.Typ -in @("kamera_reolink","kamera_instar") }
 $kamsWithSnap = $kameras | Where-Object { $_.Details -and $_.Details.Snapshot_B64 }
 if ($kamsWithSnap.Count -gt 0) {
     $snapBlocks = ""
@@ -267,14 +270,14 @@ foreach ($e in $AlleErgebnisse) {
     $latAnzeige = if ($latLabel) { "$latText <span style='font-size:0.8em;'>$latLabel</span>" } else { $latText }
 
     # Info-Spalte: Docker-Teil farblich absetzen
-    $infoHauptteil = $e.Info -replace '\s*\|\s*Docker:.*$', ''
+    $infoHauptteil  = $e.Info -replace '\s*\|\s*Docker:.*$', ''
     $infoDockerHtml = ""
     if ($e.Info -match '\|\s*(Docker:.+)$') {
-        $dockerTeile = $Matches[1] -split '\s{2,}'
+        $dockerTeile    = $Matches[1] -split '\s{2,}'
         $dockerBausteine = ($dockerTeile | ForEach-Object {
-            if ($_ -match ':OK$')     { "<span style='color:#3fb950;'>$_</span>" }
+            if ($_ -match ':OK$')         { "<span style='color:#3fb950;'>$_</span>" }
             elseif ($_ -match ':FEHLER$') { "<span style='color:#f85149;font-weight:bold;'>$_</span>" }
-            else                      { "<span style='color:#8b949e;'>$_</span>" }
+            else                          { "<span style='color:#8b949e;'>$_</span>" }
         }) -join " &nbsp; "
         $infoDockerHtml = "<br><span style='color:#58a6ff;font-size:0.82em;'>&#x1F433; $dockerBausteine</span>"
     }
@@ -304,7 +307,7 @@ if ($LoginResult) {
         $loginZeilenHtml += "<tr><td style='padding:5px 8px;font-size:0.82em;color:#8b949e;border-bottom:1px solid #21262d;'>$($eintrag.Zeitstempel)</td><td style='padding:5px 8px;font-size:0.82em;font-family:monospace;border-bottom:1px solid #21262d;'>$($eintrag.QuellIP)</td><td style='padding:5px 8px;font-size:0.82em;border-bottom:1px solid #21262d;'>$($eintrag.Zielgeraet)</td><td style='padding:5px 8px;font-size:0.82em;color:$eFarbe;border-bottom:1px solid #21262d;'>$($eintrag.Ergebnis)</td></tr>"
     }
     $loginSektionHtml = @"
-    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>Externe Zugriffe – Letzte 24h</h3>
+    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>Externe Zugriffe - Letzte 24h</h3>
     <p style='color:$loginStatusFarbe;font-size:0.88em;margin-bottom:8px;'>$($LoginResult.Info)</p>
     <table style='width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;font-size:0.85em;'>
       <thead><tr style='background:#21262d;'><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zeit</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Von IP</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Zielgeraet</th><th style='padding:6px 8px;text-align:left;color:#8b949e;'>Ergebnis</th></tr></thead>
@@ -335,7 +338,7 @@ if ($script:NtopngResult) {
 "@ } else { "<p style='color:#8b949e;font-size:0.85em;'>Keine aktiven externen Verbindungen.</p>" }
 
     $ntopngSektionHtml = @"
-    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>ntopng – Aktive externe Verbindungen</h3>
+    <h3 style='color:#58a6ff;margin-top:24px;margin-bottom:8px;font-size:1em;'>ntopng - Aktive externe Verbindungen</h3>
     <p style='color:$ntopStatusFarbe;font-size:0.88em;margin-bottom:8px;'>$($script:NtopngResult.Info)</p>
     $ntopngTabelleHtml
 "@
@@ -348,7 +351,7 @@ $body = @"
 <body style='background:#0d1117;color:#e6edf3;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:20px;'>
   <div style='max-width:820px;margin:0 auto;'>
     <h1 style='color:#58a6ff;margin-bottom:2px;font-size:1.4em;'>Heimnetz Monitor</h1>
-    <p style='color:#8b949e;margin-top:0;font-size:0.9em;'>Sofortbericht – $zeitstempel | Laufzeit: $($LaufzeitSek)s</p>
+    <p style='color:#8b949e;margin-top:0;font-size:0.9em;'>Sofortbericht - $zeitstempel | Laufzeit: $($LaufzeitSek)s</p>
 
     <div style='background:$bannerFarbe;color:#fff;padding:10px 16px;border-radius:6px;font-size:1.05em;font-weight:bold;margin-bottom:14px;'>
       $bannerText
@@ -387,6 +390,7 @@ $body = @"
     $snapshotHtml
     $loginSektionHtml
     $ntopngSektionHtml
+
     <p style='color:#8b949e;font-size:0.8em;margin-top:16px;'>
       Heimnetz Monitor v2.0 | $zeitstempel<br>
       Ping-Bewertung: <span style='color:#3fb950;'>LAN &le;2ms / gut &le;10ms</span> &nbsp;
@@ -398,6 +402,7 @@ $body = @"
 </html>
 "@
 
+# ── E-Mail versenden ──────────────────────────────────────────────────────────
 try {
     $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Creds.SmtpPass)
     $passKlar = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
@@ -406,27 +411,27 @@ try {
     $cred = New-Object System.Net.NetworkCredential($smtp.smtp_von, $passKlar)
     $passKlar = $null
 
-    $smtpClient                   = New-Object System.Net.Mail.SmtpClient($smtp.smtp_host, $smtp.smtp_port)
-    $smtpClient.EnableSsl         = $true
-    $smtpClient.Credentials       = $cred
-    $smtpClient.DeliveryMethod    = [System.Net.Mail.SmtpDeliveryMethod]::Network
-    $smtpClient.Timeout           = 15000
+    $smtpClient                = New-Object System.Net.Mail.SmtpClient($smtp.smtp_host, $smtp.smtp_port)
+    $smtpClient.EnableSsl      = $true
+    $smtpClient.Credentials    = $cred
+    $smtpClient.DeliveryMethod = [System.Net.Mail.SmtpDeliveryMethod]::Network
+    $smtpClient.Timeout        = 15000
 
-    $mail                   = New-Object System.Net.Mail.MailMessage
-    $mail.From              = $smtp.smtp_von
+    $mail                 = New-Object System.Net.Mail.MailMessage
+    $mail.From            = $smtp.smtp_von
     $mail.To.Add($smtp.smtp_an)
-    $mail.Subject           = "[Heimnetz Monitor] Sofortbericht $gesamtStatus – $zeitstempel"
-    $mail.Body              = $body
-    $mail.IsBodyHtml        = $true
-    $mail.SubjectEncoding   = [System.Text.Encoding]::UTF8
-    $mail.BodyEncoding      = [System.Text.Encoding]::UTF8
+    $mail.Subject         = "[Heimnetz Monitor] Sofortbericht $gesamtStatus - $zeitstempel"
+    $mail.Body            = $body
+    $mail.IsBodyHtml      = $true
+    $mail.SubjectEncoding = [System.Text.Encoding]::UTF8
+    $mail.BodyEncoding    = [System.Text.Encoding]::UTF8
 
     $smtpClient.Send($mail)
     $mail.Dispose()
     $smtpClient.Dispose()
 
     Write-Host "  E-Mail gesendet an: $($smtp.smtp_an)" -ForegroundColor Green
-    Write-Host "  Betreff: [Heimnetz Monitor] Sofortbericht $gesamtStatus – $zeitstempel" -ForegroundColor Gray
+    Write-Host "  Betreff: [Heimnetz Monitor] Sofortbericht $gesamtStatus - $zeitstempel" -ForegroundColor Gray
 }
 catch {
     Write-Host "  FEHLER beim E-Mail-Versand: $($_.Exception.Message)" -ForegroundColor Red

@@ -1,4 +1,4 @@
-function Send-Alert {
+﻿function Send-Alert {
     param(
         [Parameter(Mandatory)][ValidateSet("Alarm","Warnung","Tagesbericht","Entwarnung")]
         [string]$Typ,

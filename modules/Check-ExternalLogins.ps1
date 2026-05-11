@@ -1,4 +1,4 @@
-function Check-ExternalLogins {
+﻿function Check-ExternalLogins {
     param(
         [string]$FritzBoxIP  = "192.168.80.1",
         [string]$NAS1_IP     = "192.168.80.206",

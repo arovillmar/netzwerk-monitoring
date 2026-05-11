@@ -1,4 +1,4 @@
-function Check-SSH {
+﻿function Check-SSH {
     param(
         [Parameter(Mandatory)][string]$IP,
         [int]$Port = 22,

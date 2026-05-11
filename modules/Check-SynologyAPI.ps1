@@ -1,4 +1,4 @@
-function Check-SynologyAPI {
+﻿function Check-SynologyAPI {
     param(
         [Parameter(Mandatory)][string]$IP,
         [int]$Port                        = 5000,

@@ -1,4 +1,4 @@
-function Check-NtopngAPI {
+﻿function Check-NtopngAPI {
     param(
         [string]$IP                                      = "192.168.80.20",
         [int]$Port                                       = 3000,

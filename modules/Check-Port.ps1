@@ -1,4 +1,4 @@
-function Check-Port {
+﻿function Check-Port {
     param(
         [Parameter(Mandatory)][string]$IP,
         [Parameter(Mandatory)][int]$Port,

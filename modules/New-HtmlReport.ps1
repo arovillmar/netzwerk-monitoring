@@ -1,4 +1,4 @@
-function New-HtmlReport {
+﻿function New-HtmlReport {
     param(
         [array]$Ergebnisse,
         $LoginResult,
