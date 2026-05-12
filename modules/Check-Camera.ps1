@@ -26,8 +26,8 @@
 
     # ── Ping ──────────────────────────────────────────────────────────────────
     try {
-        Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 2 -ErrorAction Stop | Out-Null
-        $pingOK = $true
+        $pingOK = (New-Object System.Net.NetworkInformation.Ping).Send($IP, 2000).Status -eq 'Success'
+        if (-not $pingOK) { throw "Kein Ping" }
     }
     catch { $pingOK = $false }
 

@@ -8,7 +8,7 @@
 
     # Ping
     try {
-        Test-Connection -ComputerName $IP -Count 1 -TimeoutSeconds 2 -ErrorAction Stop | Out-Null
+        if ((New-Object System.Net.NetworkInformation.Ping).Send($IP, 2000).Status -ne 'Success') { throw "Kein Ping" }
     }
     catch {
         $startzeit.Stop()

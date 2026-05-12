@@ -79,7 +79,8 @@
 
     # QUELLE 1 – Fritz!Box TR-064 VPN-Status (vereinfacht: Port-Check + Info)
     try {
-        $fritzPing = Test-Connection -ComputerName $FritzBoxIP -Count 1 -TimeoutSeconds 1 -ErrorAction Stop
+        $fritzPing = (New-Object System.Net.NetworkInformation.Ping).Send($FritzBoxIP, 1000).Status -eq 'Success'
+        if (-not $fritzPing) { throw "Kein Ping" }
         $alleEintraege += [PSCustomObject]@{
             Zeitstempel = (Get-Date).ToString("dd.MM.yyyy HH:mm:ss")
             QuellIP     = "intern"
@@ -144,7 +145,7 @@
 
     # QUELLE 4 – SASCHA_SERVER Ping + RDP Port 3389
     try {
-        Test-Connection -ComputerName "192.168.80.87" -Count 1 -TimeoutSeconds 1 -ErrorAction Stop | Out-Null
+        if ((New-Object System.Net.NetworkInformation.Ping).Send("192.168.80.87", 1000).Status -ne 'Success') { throw "Kein Ping" }
         $rdpClient     = New-Object System.Net.Sockets.TcpClient
         $rdpVerbindung = $rdpClient.BeginConnect("192.168.80.87", 3389, $null, $null)
         $rdpErfolg     = $rdpVerbindung.AsyncWaitHandle.WaitOne(2000, $false)
