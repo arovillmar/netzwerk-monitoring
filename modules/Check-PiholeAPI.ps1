@@ -1,10 +1,14 @@
-﻿function Check-PiholeAPI {
+function Check-PiholeAPI {
     param(
         [string]$IP                                        = "192.168.80.20",
-        [System.Security.SecureString]$PassSecure          = $null
+        [System.Security.SecureString]$PassSecure          = $null,
+        [switch]$DetailModus
     )
 
-    $startzeit = [System.Diagnostics.Stopwatch]::StartNew()
+    $startzeit  = [System.Diagnostics.Stopwatch]::StartNew()
+    $topDomains = @()
+    $topClients = @()
+    $upstreams  = @()
 
     # Passwort entschlüsseln
     $passwort = ""
@@ -19,24 +23,27 @@
     try {
         $authBody = @{ password = $passwort } | ConvertTo-Json -Compress
         $authResp = Invoke-RestMethod `
-            -Uri     "http://$IP/api/auth" `
-            -Method  Post `
-            -Body    $authBody `
+            -Uri         "http://$IP/api/auth" `
+            -Method      Post `
+            -Body        $authBody `
             -ContentType "application/json" `
-            -TimeoutSec 8 `
+            -TimeoutSec  8 `
             -ErrorAction Stop
 
         $sid = $authResp.session.sid
         if (-not $sid) {
             $startzeit.Stop()
             return [PSCustomObject]@{
-                Status        = "FEHLER"
-                Queries_Heute = 0
-                Blockierrate  = "n/a"
+                Status         = "FEHLER"
+                Queries_Heute  = 0
+                Blockierrate   = "n/a"
                 Aktive_Clients = 0
-                Gravity_Liste = 0
+                Gravity_Liste  = 0
+                TopDomains     = $topDomains
+                TopClients     = $topClients
+                Upstreams      = $upstreams
                 Antwortzeit_ms = $startzeit.ElapsedMilliseconds
-                Info          = "Pi-hole Auth fehlgeschlagen – kein SID in Antwort (Passwort falsch?)"
+                Info           = "Pi-hole Auth fehlgeschlagen – kein SID in Antwort (Passwort falsch?)"
             }
         }
     }
@@ -50,6 +57,9 @@
             Blockierrate   = "n/a"
             Aktive_Clients = 0
             Gravity_Liste  = 0
+            TopDomains     = $topDomains
+            TopClients     = $topClients
+            Upstreams      = $upstreams
             Antwortzeit_ms = $startzeit.ElapsedMilliseconds
             Info           = "Pi-hole Auth nicht erreichbar: $meldung"
         }
@@ -63,10 +73,10 @@
 
     try {
         $summary = Invoke-RestMethod `
-            -Uri     "http://$IP/api/stats/summary" `
-            -Method  Get `
-            -Headers $headers `
-            -TimeoutSec 8 `
+            -Uri         "http://$IP/api/stats/summary" `
+            -Method      Get `
+            -Headers     $headers `
+            -TimeoutSec  8 `
             -ErrorAction Stop
 
         $queriesHeute  = 0
@@ -87,6 +97,43 @@
             $blockierrate = [Math]::Round(($blockiert / $queriesHeute) * 100, 1)
         }
 
+        if ($DetailModus) {
+            try {
+                $resp     = Invoke-RestMethod -Uri "http://$IP/api/stats/top_domains?blocked=true&count=10" `
+                    -Method Get -Headers $headers -TimeoutSec 8 -ErrorAction Stop
+                $rohdaten = if ($resp.domains) { $resp.domains } elseif ($resp.top_domains) { $resp.top_domains } elseif ($resp.rsp) { $resp.rsp } else { @() }
+                foreach ($entry in $rohdaten) {
+                    $topDomains += [PSCustomObject]@{ Domain = $entry.domain; Anzahl = [int]$entry.count }
+                }
+            } catch {}
+
+            try {
+                $resp     = Invoke-RestMethod -Uri "http://$IP/api/stats/top_clients?count=10" `
+                    -Method Get -Headers $headers -TimeoutSec 8 -ErrorAction Stop
+                $rohdaten = if ($resp.clients) { $resp.clients } elseif ($resp.top_clients) { $resp.top_clients } elseif ($resp.rsp) { $resp.rsp } else { @() }
+                foreach ($entry in $rohdaten) {
+                    $topClients += [PSCustomObject]@{
+                        Client = if ($entry.name -and $entry.name -ne $entry.ip) { $entry.name } else { $entry.ip }
+                        IP     = $entry.ip
+                        Anzahl = [int]$entry.count
+                    }
+                }
+            } catch {}
+
+            try {
+                $resp     = Invoke-RestMethod -Uri "http://$IP/api/stats/upstreams" `
+                    -Method Get -Headers $headers -TimeoutSec 8 -ErrorAction Stop
+                $rohdaten = if ($resp.upstreams) { $resp.upstreams } elseif ($resp.rsp) { $resp.rsp } else { @() }
+                foreach ($entry in $rohdaten) {
+                    $upstreams += [PSCustomObject]@{
+                        Resolver = $entry.name
+                        Requests = [int]$entry.count
+                        Prozent  = if ($entry.percentage) { [Math]::Round([double]$entry.percentage, 1) } else { 0.0 }
+                    }
+                }
+            } catch {}
+        }
+
         $warnText = ""
         $status   = "OK"
         if ($blockierrate -lt 5 -and $queriesHeute -gt 100) {
@@ -102,6 +149,9 @@
             Blockierrate   = "$blockierrate%"
             Aktive_Clients = $aktiveClients
             Gravity_Liste  = $gravityListe
+            TopDomains     = $topDomains
+            TopClients     = $topClients
+            Upstreams      = $upstreams
             Antwortzeit_ms = $startzeit.ElapsedMilliseconds
             Info           = "Pi-hole OK. Queries: $queriesHeute | Blockiert: $blockierrate% | Clients: $aktiveClients | Gravity: $gravityListe Domains.$warnText"
         }
@@ -114,6 +164,9 @@
             Blockierrate   = "n/a"
             Aktive_Clients = 0
             Gravity_Liste  = 0
+            TopDomains     = $topDomains
+            TopClients     = $topClients
+            Upstreams      = $upstreams
             Antwortzeit_ms = $startzeit.ElapsedMilliseconds
             Info           = "Pi-hole Stats nicht abrufbar: $($_.Exception.Message)"
         }

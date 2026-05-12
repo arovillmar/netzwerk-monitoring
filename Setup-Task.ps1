@@ -10,6 +10,11 @@ $GitOrdner     = Join-Path $SkriptPfad ".git"
 $TaskName1     = "Heimnetz-Monitor-Check"
 $TaskName2     = "Heimnetz-Monitor-Tagesbericht"
 
+# PowerShell 7 bevorzugen, Fallback auf Windows PowerShell 5.1
+$pwshPfad = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+if (-not $pwshPfad) { $pwshPfad = "C:\Program Files\PowerShell\7\pwsh.exe" }
+$psExe = if (Test-Path $pwshPfad) { $pwshPfad } else { "PowerShell.exe" }
+
 Clear-Host
 Write-Host ""
 Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Cyan
@@ -21,6 +26,12 @@ Write-Host ""
 $fehler = $false
 
 Write-Host "  Prüfe Voraussetzungen..." -ForegroundColor Gray
+Write-Host ""
+
+# 0. PowerShell-Version
+$psVersion = if (Test-Path $pwshPfad) { "PowerShell 7 ($pwshPfad)" } else { "Windows PowerShell 5.1 (PS7 nicht gefunden!)" }
+$psFarbe   = if (Test-Path $pwshPfad) { "Green" } else { "Yellow" }
+Write-Host "  [PS] Verwende: $psVersion" -ForegroundColor $psFarbe
 Write-Host ""
 
 # 1. credentials.json
@@ -96,16 +107,14 @@ try {
     }
 
     $aktion1 = New-ScheduledTaskAction `
-        -Execute "PowerShell.exe" `
+        -Execute $psExe `
         -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler"
 
     # Trigger 1a: Täglich ab 00:00, alle 15 Minuten wiederholen
     $trigger1 = New-ScheduledTaskTrigger -Daily -At "00:00"
-    $trigger1.Repetition = New-Object Microsoft.Management.Infrastructure.CimInstance `
-        -ArgumentList "MSFT_TaskRepetitionPattern","Root/Microsoft/Windows/TaskScheduler"
-    $trigger1.Repetition.CimInstanceProperties["Interval"].Value         = "PT15M"
-    $trigger1.Repetition.CimInstanceProperties["Duration"].Value         = "P1D"
-    $trigger1.Repetition.CimInstanceProperties["StopAtDurationEnd"].Value = $false
+    $trigger1.Repetition.Interval          = "PT15M"
+    $trigger1.Repetition.Duration          = "P1D"
+    $trigger1.Repetition.StopAtDurationEnd = $false
 
     # Trigger 1b: Beim Hochfahren – 3 Minuten warten (Netz muss erst stabil sein)
     $trigger1Boot = New-ScheduledTaskTrigger -AtStartup
@@ -139,11 +148,8 @@ catch {
 
     # Fallback: schtasks.exe
     Write-Host "       Versuche Fallback mit schtasks.exe..." -ForegroundColor Gray
-    $schtasksArgs = "/Create /TN `"$TaskName1`" /SC MINUTE /MO 15 " +
-        "/TR `"PowerShell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$HauptSkript\`" -TaskScheduler`" " +
-        "/RU `"$env:USERDOMAIN\$env:USERNAME`" /RL HIGHEST /F"
     & schtasks.exe /Create /TN "$TaskName1" /SC MINUTE /MO 15 `
-        /TR "PowerShell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler" `
+        /TR "`"$psExe`" -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler" `
         /RU "$env:USERDOMAIN\$env:USERNAME" /RL HIGHEST /F 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  [OK] Task per schtasks.exe erstellt." -ForegroundColor Green
@@ -161,7 +167,7 @@ try {
     }
 
     $aktion2 = New-ScheduledTaskAction `
-        -Execute "PowerShell.exe" `
+        -Execute $psExe `
         -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler -Tagesbericht"
 
     $trigger2 = New-ScheduledTaskTrigger -Daily -At "08:00"
@@ -190,7 +196,7 @@ try {
 catch {
     Write-Host "  [!!] Fehler bei Task 2: $($_.Exception.Message)" -ForegroundColor Red
     & schtasks.exe /Create /TN "$TaskName2" /SC DAILY /ST "08:00" `
-        /TR "PowerShell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler -Tagesbericht" `
+        /TR "`"$psExe`" -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HauptSkript`" -TaskScheduler -Tagesbericht" `
         /RU "$env:USERDOMAIN\$env:USERNAME" /RL HIGHEST /F 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  [OK] Task per schtasks.exe erstellt." -ForegroundColor Green
