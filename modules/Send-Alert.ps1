@@ -19,6 +19,15 @@
         try { $letzterStatus = Get-Content $statusPfad -Raw | ConvertFrom-Json } catch {}
     }
 
+    # Foto-Intervall: max 2x täglich (alle 12 Stunden), Tagesbericht immer mit Fotos
+    $fotoIntervallStunden = 12
+    $letzterFotoStr       = if ($letzterStatus) { $letzterStatus.letzte_foto_zeitpunkt } else { $null }
+    $letzterFotoZeitpunkt = $null
+    if ($letzterFotoStr) { try { $letzterFotoZeitpunkt = [DateTime]::Parse($letzterFotoStr) } catch {} }
+    $MitFotos = ($Typ -eq "Tagesbericht") -or
+                (-not $letzterFotoZeitpunkt) -or
+                (($jetzt - $letzterFotoZeitpunkt).TotalHours -ge $fotoIntervallStunden)
+
     # Anti-Spam: gleicher Fehlertyp innerhalb Sperrzeit?
     $sperrzeitMin = if ($SmtpConfig.max_alarm_wiederholung_minuten) { $SmtpConfig.max_alarm_wiederholung_minuten } else { 30 }
 
@@ -55,7 +64,7 @@
         "Entwarnung"   { "✅ Heimnetz OK – Problem behoben [$($jetzt.ToString('HH:mm'))]" }
     }
 
-    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult -NtopngResult $NtopngResult
+    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult -NtopngResult $NtopngResult -MitFotos $MitFotos
 
     # SMTP senden
     try {
@@ -85,13 +94,15 @@
         $mail.Dispose()
         $smtp.Dispose()
 
-        Write-Host "  [Send-Alert] E-Mail gesendet: $betreff" -ForegroundColor Green
+        $fotoHinweis = if ($MitFotos) { " (mit Fotos)" } else { " (ohne Fotos)" }
+        Write-Host "  [Send-Alert] E-Mail gesendet: $betreff$fotoHinweis" -ForegroundColor Green
 
         # last_status.json aktualisieren
         $neuerStatus = [PSCustomObject]@{
             letzter_alert_zeitpunkt = $jetzt.ToString("yyyy-MM-dd HH:mm:ss")
             letzter_alert_typ       = $Typ
             letzter_alert_betreff   = $betreff
+            letzte_foto_zeitpunkt   = if ($MitFotos) { $jetzt.ToString("yyyy-MM-dd HH:mm:ss") } else { $letzterFotoStr }
         }
         $neuerStatus | ConvertTo-Json | Set-Content $statusPfad -Encoding UTF8
     }
@@ -106,7 +117,8 @@ function New-AlertBody {
         [array]$Ergebnisse,
         [string]$Zeitstempel,
         [PSCustomObject]$LoginResult  = $null,
-        [PSCustomObject]$NtopngResult = $null
+        [PSCustomObject]$NtopngResult = $null,
+        [bool]$MitFotos               = $false
     )
 
     $relevante = switch ($Typ) {
@@ -166,7 +178,7 @@ function New-AlertBody {
     $snapshotSektionHtml = ""
     $alleKameras  = $Ergebnisse | Where-Object { $_.Typ -in @("kamera_reolink","kamera_instar") }
     $kamsWithSnap = $alleKameras | Where-Object { $_.Details -and $_.Details.Snapshot_B64 }
-    if ($kamsWithSnap.Count -gt 0) {
+    if ($MitFotos -and $kamsWithSnap.Count -gt 0) {
         $snapBlocks = ""
         foreach ($k in $kamsWithSnap) {
             $statusFarbe = switch ($k.CheckStatus) { "FEHLER" { "#f85149" } "WARNUNG" { "#d29922" } default { "#3fb950" } }

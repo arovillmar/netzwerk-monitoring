@@ -220,11 +220,21 @@ $bannerText   = switch ($gesamtStatus) {
     default   { "Alles OK – Alle $AnzahlOK Geraete erreichbar" }
 }
 
+# Foto-Intervall prüfen: max 2x täglich (alle 12 Stunden)
+$statusPfadSofort    = Join-Path $PSScriptRoot "last_status.json"
+$letzterStatusSofort = $null
+if (Test-Path $statusPfadSofort) { try { $letzterStatusSofort = Get-Content $statusPfadSofort -Raw | ConvertFrom-Json } catch {} }
+$letzterFotoSofort   = $null
+if ($letzterStatusSofort -and $letzterStatusSofort.letzte_foto_zeitpunkt) {
+    try { $letzterFotoSofort = [DateTime]::Parse($letzterStatusSofort.letzte_foto_zeitpunkt) } catch {}
+}
+$sofortMitFotos = (-not $letzterFotoSofort) -or (((Get-Date) - $letzterFotoSofort).TotalHours -ge 12)
+
 # Kamera-Snapshots sammeln
 $snapshotHtml = ""
 $kameras = $AlleErgebnisse | Where-Object { $_.Typ -in @("kamera_reolink","kamera_instar") }
 $kamsWithSnap = $kameras | Where-Object { $_.Details -and $_.Details.Snapshot_B64 }
-if ($kamsWithSnap.Count -gt 0) {
+if ($sofortMitFotos -and $kamsWithSnap.Count -gt 0) {
     $snapBlocks = ""
     foreach ($k in $kamsWithSnap) {
         $statusFarbe = switch ($k.CheckStatus) { "FEHLER" { "#f85149" } "WARNUNG" { "#d29922" } default { "#3fb950" } }
@@ -425,8 +435,20 @@ try {
     $mail.Dispose()
     $smtpClient.Dispose()
 
-    Write-Host "  E-Mail gesendet an: $($smtp.smtp_an)" -ForegroundColor Green
+    $fotoHinweis = if ($sofortMitFotos) { " (mit Fotos)" } else { " (ohne Fotos)" }
+    Write-Host "  E-Mail gesendet an: $($smtp.smtp_an)$fotoHinweis" -ForegroundColor Green
     Write-Host "  Betreff: [Heimnetz Monitor] Sofortbericht $gesamtStatus – $zeitstempel" -ForegroundColor Gray
+
+    if ($sofortMitFotos) {
+        $letzterFotoStr = if ($letzterStatusSofort) { $letzterStatusSofort.letzte_foto_zeitpunkt } else { $null }
+        $aktuellerStatus = [PSCustomObject]@{
+            letzter_alert_zeitpunkt = if ($letzterStatusSofort) { $letzterStatusSofort.letzter_alert_zeitpunkt } else { $null }
+            letzter_alert_typ       = if ($letzterStatusSofort) { $letzterStatusSofort.letzter_alert_typ }       else { $null }
+            letzter_alert_betreff   = if ($letzterStatusSofort) { $letzterStatusSofort.letzter_alert_betreff }   else { $null }
+            letzte_foto_zeitpunkt   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        }
+        $aktuellerStatus | ConvertTo-Json | Set-Content $statusPfadSofort -Encoding UTF8
+    }
 }
 catch {
     Write-Host "  FEHLER beim E-Mail-Versand: $($_.Exception.Message)" -ForegroundColor Red
