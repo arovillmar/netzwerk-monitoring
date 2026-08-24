@@ -12,7 +12,7 @@
     $statusPfad  = Join-Path $PSScriptRoot "..\last_status.json"
     $jetzt       = Get-Date
     $jetztStr    = $jetzt.ToString("dd.MM.yyyy HH:mm")
-    $quellSkript = try { Split-Path -Leaf (Get-PSCallStack)[-1].ScriptName } catch { "unbekannt" }
+    $quellSkript = try { Split-Path -Leaf ((Get-PSCallStack | Where-Object { $_.ScriptName } | Select-Object -Last 1).ScriptName) } catch { "unbekannt" }
     if (-not $quellSkript) { $quellSkript = "unbekannt" }
 
     # last_status.json laden
