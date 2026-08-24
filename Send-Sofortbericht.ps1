@@ -85,7 +85,7 @@ foreach ($G in $GeraeteListe) {
                 $checkInfo = "SSH/:$($G.ssh_port) $(if ($sshResult -and $sshResult.Status -eq 'OK') { 'OK' } else { 'FEHLER' })"
                 if ($G.checks -contains "pihole_api") {
                     $piholeResult = Check-PiholeAPI -IP $G.ip -PassSecure $Creds.PiholePass
-                    if ($piholeResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
+                    if ($piholeResult.Status -in @("FEHLER","WARNUNG") -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
                     $checkInfo += " | Pi-hole/:80 $($piholeResult.Status) ($($piholeResult.Blockierrate))"
                     $details = $piholeResult
                 }

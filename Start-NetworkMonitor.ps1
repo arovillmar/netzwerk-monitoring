@@ -182,7 +182,7 @@ foreach ($G in $GeraeteListe) {
                 if ($G.checks -contains "pihole_api") {
                     $piholePass   = if ($Creds) { $Creds.PiholePass } else { $null }
                     $piholeResult = Check-PiholeAPI -IP $G.ip -PassSecure $piholePass
-                    if ($piholeResult.Status -eq "FEHLER" -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
+                    if ($piholeResult.Status -in @("FEHLER","WARNUNG") -and $checkStatus -eq "OK") { $checkStatus = "WARNUNG" }
                     $checkInfo += " | Pi-hole/:80 $($piholeResult.Status) ($($piholeResult.Blockierrate))"
                     $details   = $piholeResult
                 }
