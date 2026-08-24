@@ -12,6 +12,8 @@
     $statusPfad  = Join-Path $PSScriptRoot "..\last_status.json"
     $jetzt       = Get-Date
     $jetztStr    = $jetzt.ToString("dd.MM.yyyy HH:mm")
+    $quellSkript = try { Split-Path -Leaf (Get-PSCallStack)[-1].ScriptName } catch { "unbekannt" }
+    if (-not $quellSkript) { $quellSkript = "unbekannt" }
 
     # last_status.json laden
     $letzterStatus = $null
@@ -64,7 +66,7 @@
         "Entwarnung"   { "✅ Heimnetz OK – Problem behoben [$($jetzt.ToString('HH:mm'))]" }
     }
 
-    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult -NtopngResult $NtopngResult -MitFotos $MitFotos
+    $body = New-AlertBody -Typ $Typ -Ergebnisse $Ergebnisse -Zeitstempel $jetztStr -LoginResult $LoginResult -NtopngResult $NtopngResult -MitFotos $MitFotos -QuellSkript $quellSkript
 
     # SMTP senden
     try {
@@ -118,7 +120,8 @@ function New-AlertBody {
         [string]$Zeitstempel,
         [PSCustomObject]$LoginResult  = $null,
         [PSCustomObject]$NtopngResult = $null,
-        [bool]$MitFotos               = $false
+        [bool]$MitFotos               = $false,
+        [string]$QuellSkript          = "unbekannt"
     )
 
     $relevante = switch ($Typ) {
@@ -282,7 +285,7 @@ function New-AlertBody {
     $ntopngSektionHtml
     $snapshotSektionHtml
     <p style='color:#8b949e;font-size:0.85em;margin-top:20px;'>
-      Heimnetz Monitor v2.0 | Automatisch generiert am $Zeitstempel
+      Heimnetz Monitor v2.0 | Automatisch generiert am $Zeitstempel | Quelle: $QuellSkript
     </p>
   </div>
 </body>

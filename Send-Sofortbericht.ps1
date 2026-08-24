@@ -4,6 +4,7 @@ $ErrorActionPreference = "Continue"
 
 $StartZeit  = Get-Date
 $SkriptPfad = Split-Path -Parent $MyInvocation.MyCommand.Path
+$QuellSkript = Split-Path -Leaf $MyInvocation.MyCommand.Path
 $ConfigPfad = Join-Path $SkriptPfad "config.json"
 $CredPfad   = Join-Path $SkriptPfad "credentials.json"
 $ModulPfad  = Join-Path $SkriptPfad "modules"
@@ -398,7 +399,7 @@ $body = @"
     $loginSektionHtml
     $ntopngSektionHtml
     <p style='color:#8b949e;font-size:0.8em;margin-top:16px;'>
-      Heimnetz Monitor v2.0 | $zeitstempel<br>
+      Heimnetz Monitor v2.0 | $zeitstempel | Quelle: $QuellSkript<br>
       Ping-Bewertung: <span style='color:#3fb950;'>LAN &le;2ms / gut &le;10ms</span> &nbsp;
       <span style='color:#d29922;'>traege &le;30ms</span> &nbsp;
       <span style='color:#f85149;'>LANGSAM &gt;30ms</span>
